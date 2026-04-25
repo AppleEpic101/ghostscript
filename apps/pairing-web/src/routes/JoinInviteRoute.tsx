@@ -1,11 +1,41 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { mockJoinInvite } from "@ghostscript/shared";
+import { useAuth } from "../auth/AuthContext";
+import { AuthGate } from "../components/AuthGate";
 import { StatusPill } from "../components/StatusPill";
 
 export function JoinInviteRoute() {
+  const { isAuthenticated, user } = useAuth();
   const [inviteCode, setInviteCode] = useState("GHOST-4827");
-  const [joinerName, setJoinerName] = useState("");
+  const [joinerName, setJoinerName] = useState(user?.name ?? "");
+
+  useEffect(() => {
+    if (user?.name && !joinerName) {
+      setJoinerName(user.name);
+    }
+  }, [joinerName, user?.name]);
+
   const response = mockJoinInvite({ inviteCode, joinerName });
+
+  if (!isAuthenticated) {
+    return (
+      <AuthGate
+        title="Sign in to join an invite."
+        description="Joining a session binds the current browser to a Google-backed identity before verification."
+      >
+        <article className="panel detail-strip">
+          <div>
+            <p className="panel-label">Identity binding</p>
+            <p>The joined session uses your signed-in profile as the local browser identity.</p>
+          </div>
+          <div>
+            <p className="panel-label">Next step</p>
+            <p>After joining, the contact remains paired but unverified until the safety number matches.</p>
+          </div>
+        </article>
+      </AuthGate>
+    );
+  }
 
   return (
     <section className="panel-grid single-column">
@@ -38,7 +68,7 @@ export function JoinInviteRoute() {
         <div className="invite-card">
           <p className="panel-label">Session preview</p>
           <strong>{response.contact.displayName || "Name pending"}</strong>
-          <p>{response.contact.discordHandle || "@discord-handle"}</p>
+          <p>{user?.email}</p>
           <p>Joined {new Date(response.joinedAt).toLocaleTimeString()}</p>
           <StatusPill status={response.contact.trustStatus} />
         </div>

@@ -1,13 +1,37 @@
 import { useState } from "react";
 import { mockConfirmVerification, mockPairingSnapshot } from "@ghostscript/shared";
+import { useAuth } from "../auth/AuthContext";
+import { AuthGate } from "../components/AuthGate";
 import { StatusPill } from "../components/StatusPill";
 
 export function VerifyRoute() {
+  const { isAuthenticated, user } = useAuth();
   const [confirmed, setConfirmed] = useState(false);
+
+  if (!isAuthenticated) {
+    return (
+      <AuthGate
+        title="Sign in to verify a contact."
+        description="Verification now records which Google account confirmed the safety number for this browser session."
+      >
+        <article className="panel detail-strip">
+          <div>
+            <p className="panel-label">Audit trail</p>
+            <p>The verification action stores the signed-in account email as the confirmer identity.</p>
+          </div>
+          <div>
+            <p className="panel-label">Trust update</p>
+            <p>Only after the values match should the contact move to verified.</p>
+          </div>
+        </article>
+      </AuthGate>
+    );
+  }
+
   const result = confirmed
     ? mockConfirmVerification({
         inviteCode: "GHOST-4827",
-        confirmedBy: "local-user",
+        confirmedBy: user?.email ?? "local-user",
       })
     : null;
 
@@ -38,7 +62,7 @@ export function VerifyRoute() {
           </div>
           <div>
             <strong>Mark as verified</strong>
-            <p>Update trust only after both values match.</p>
+            <p>Update trust only after both values match for {user?.email}.</p>
           </div>
         </div>
         <button className="primary-button" onClick={() => setConfirmed(true)}>

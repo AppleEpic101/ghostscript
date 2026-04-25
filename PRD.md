@@ -23,8 +23,8 @@ The PRD should define:
   - Mobile
   - Multi-device sync
   - Perfect undetectability
-  - AI-generated natural-language cover text as the main codec
   - Deep-learning image-to-image hiding in production
+- Allow AI-generated natural-language cover text as an optional usability layer for text messages, but keep it explicitly non-authoritative: the secure payload remains the encrypted Unicode steganographic suffix, and decryption must never depend on the semantic content of the generated prose.
 
 ### Security architecture
 - Lock the PRD to standard crypto, not custom reversible “sentence encryption.”
@@ -58,11 +58,20 @@ The PRD should define:
 - Outgoing text flow:
   - extension must avoid hardcoded, obfuscated Discord CSS classes (e.g., `.messageContent_ab12c`) and instead rely on structural or attribute-based DOM selectors (e.g., `[role="textbox"]`, `data-list-item-id`) to survive Discord UI updates
   - user writes plaintext in extension UI
+  - user can choose either:
+    - manual cover text entry
+    - automatic AI-generated cover text
+  - when automatic cover text is enabled, the extension generates benign-looking cover prose locally or via a privacy-reviewed API path using user-provided style controls for:
+    - tone
+    - context
+    - speaking style
+  - default AI cover-text preset must be `casual SMS bro tone over Discord`
   - extension compresses plaintext with `zlib/deflate` via `fflate` whenever the plaintext payload exceeds `64 bytes`
   - extension encrypts locally
   - encrypted bytes are encoded with a Base-16 steganographic alphabet using an exact array of safe, non-printing Unicode characters (U+200B, U+200C, U+200D, U+2060, U+2061, U+2062, U+2063, U+2064, U+206A, U+206B, U+206C, U+206D, U+206E, U+206F, U+FEFF, and U+FFA0) which are appended to the generated Cover Text, yielding 4 bits per character and a 1:2 byte-to-character expansion ratio suitable for Discord’s `2,000-character` cap
   - only cover text is inserted into Discord
   - insertion into Discord must use `document.execCommand('insertText')` or equivalent `InputEvent` simulation so the React/Slate.js editor state updates correctly and the `Send` button is activated
+  - if AI generation is unavailable, rate-limited, rejected by policy, or times out, the compose flow must fall back to either a deterministic local cover-text template or manual user-authored cover text without blocking secure send
 - Incoming text flow:
   - extension detects Ghostscript messages using resilient structural or attribute-based DOM selectors (avoiding obfuscated classes)
   - decodes and decrypts locally
@@ -130,9 +139,17 @@ The PRD should define:
   - `PairedContact`
   - `ConversationState`
   - `TrustStatus`
+  - `CoverTextStyle`
   - `StegoCodec`
   - `EncodedGhostscriptMessage`
   - `StegoImageEnvelope`
+- `CoverTextStyle` definition:
+  - `mode: 'manual' | 'ai-generated'`
+  - `tone: string`
+  - `context: string`
+  - `speakingStyle: string`
+  - `presetId?: string`
+  - default preset values should resolve to casual SMS bro tone suitable for Discord DMs
 - `StegoCodec` module definition:
   - `encode(bytes: Uint8Array): string`
   - `decode(text: string): Uint8Array`
@@ -164,11 +181,14 @@ The PRD should define:
 ## Test Plan
 - Pair two fresh users and confirm matching conversation secrets only after verification.
 - Verify Discord only receives cover text for secure text messages.
+- Verify both manual and AI-generated cover text flows successfully carry the same encrypted payload.
+- Verify users can set tone, context, and speaking style for AI cover text and that the default preset is casual SMS bro tone for Discord DMs.
 - Verify plaintext text never appears in Discord’s native composer or readable page DOM in the secure flow.
 - Send valid Ghostscript text and confirm successful local decode/decrypt.
 - Tamper with any message field and verify integrity failure.
 - Replay a prior TEXT message and verify replay detection (Note: Replay protection is explicitly excluded for Image steganography to minimize state synchronization complexity).
 - Lock the extension and confirm local keys remain unusable until passphrase unlock.
+- Simulate AI cover-text generation failure and verify send falls back cleanly without exposing plaintext or dropping the message.
 - For images, validate end-to-end PNG round-trip through Discord upload/download before promising the feature in demo.
 - Embed, send, receive, extract, and decrypt a bounded secret image from a benign PNG carrier.
 - Attempt extraction with the wrong key or a transformed carrier and verify fail-closed behavior with no partial reveal.
@@ -179,4 +199,5 @@ The PRD should define:
 - Text is the core MVP.
 - Secure-image stego is a flagship **stretch feature** after text works reliably.
 - The recommended browser crypto implementation for the extension is `libsodium.js`/WASM for XChaCha20-Poly1305 and Argon2id, while standard browser APIs can still be used where appropriate.
+- AI-generated cover text is a convenience layer for message camouflage and tone-matching, not part of the cryptographic trust model or decoding contract.
 - The PRD should explicitly say Ghostscript provides **confidentiality and tamper resistance**, not invisibility against all steganalysis or protection against compromised endpoints.

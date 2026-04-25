@@ -1,7 +1,10 @@
+import { useAuth } from "../auth/AuthContext";
+import { GoogleSignInButton } from "../components/GoogleSignInButton";
 import { mockPairingSnapshot } from "@ghostscript/shared";
 import { StatusPill } from "../components/StatusPill";
 
 export function LandingRoute() {
+  const { isAuthenticated, user } = useAuth();
   const { identity, contact, conversation, sampleMessage } = mockPairingSnapshot;
 
   return (
@@ -17,6 +20,10 @@ export function LandingRoute() {
         </div>
         <div className="hero-aside">
           <div className="hero-stat">
+            <span>Signed in</span>
+            <strong>{isAuthenticated ? user?.email : "Not yet connected"}</strong>
+          </div>
+          <div className="hero-stat">
             <span>Protocol</span>
             <strong>v{sampleMessage.v}</strong>
           </div>
@@ -30,6 +37,20 @@ export function LandingRoute() {
           </div>
         </div>
       </article>
+
+      {!isAuthenticated ? (
+        <article className="panel auth-inline-panel">
+          <div className="auth-inline-copy">
+            <p className="panel-label">Before you pair</p>
+            <h3>Sign in with Google to bind the browser to an email identity.</h3>
+            <p>
+              This demo uses your Google account profile to personalize the pairing flow and
+              gate invite actions to an authenticated browser session.
+            </p>
+          </div>
+          <GoogleSignInButton />
+        </article>
+      ) : null}
 
       <section className="panel-grid">
         <article className="panel dossier-panel">

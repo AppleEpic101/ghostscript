@@ -21,19 +21,27 @@ This repository intentionally does **not** include the real cryptography or back
 corepack pnpm install
 ```
 
-2. Run the pairing web app:
+2. Configure Google sign-in for the pairing web app:
+
+```bash
+cp apps/pairing-web/.env.example apps/pairing-web/.env.local
+```
+
+Then set `VITE_GOOGLE_CLIENT_ID` to a Google Identity Services web client ID that includes your local Vite origin, such as `http://localhost:5173`.
+
+3. Run the pairing web app:
 
 ```bash
 corepack pnpm dev:web
 ```
 
-3. Build the extension:
+4. Build the extension:
 
 ```bash
 corepack pnpm --filter @ghostscript/extension build
 ```
 
-4. Load the unpacked extension in Chrome:
+5. Load the unpacked extension in Chrome:
    - Open `chrome://extensions`
    - Enable Developer Mode
    - Click **Load unpacked**
