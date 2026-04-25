@@ -5,6 +5,7 @@ import { LandingRoute } from "./routes/LandingRoute";
 import { CreateInviteRoute } from "./routes/CreateInviteRoute";
 import { JoinInviteRoute } from "./routes/JoinInviteRoute";
 import { VerifyRoute } from "./routes/VerifyRoute";
+import { ensureFreshDeployStorage } from "./lib/pairingSession";
 
 type ThemePreference = "light" | "dark" | "system";
 type AppliedTheme = Exclude<ThemePreference, "system">;
@@ -24,6 +25,7 @@ function getStoredThemePreference(): ThemePreference {
     return "system";
   }
 
+  ensureFreshDeployStorage();
   const storedPreference = window.localStorage.getItem(THEME_STORAGE_KEY);
 
   if (

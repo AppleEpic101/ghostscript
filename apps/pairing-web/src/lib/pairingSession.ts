@@ -10,6 +10,9 @@ const PAIRING_SESSION_STORAGE_KEY = "ghostscript-active-pairing-session";
 const CREATE_INVITE_STORAGE_KEY = "ghostscript-create-invite-state";
 const JOIN_INVITE_STORAGE_KEY = "ghostscript-join-invite-state";
 const ANONYMOUS_SUBJECT_STORAGE_KEY = "ghostscript-anonymous-subject";
+const DEPLOY_TOKEN_STORAGE_KEY = "ghostscript-deploy-token";
+const STORAGE_PREFIX = "ghostscript-";
+const CURRENT_DEPLOY_TOKEN = import.meta.env.VITE_GHOSTSCRIPT_DEPLOY_TOKEN ?? "local-dev";
 
 export interface StoredPairingSession {
   inviteCode: string;
@@ -56,6 +59,7 @@ export function writeStoredJoinInviteState(state: StoredJoinInviteState) {
 }
 
 export function getOrCreateAnonymousSubject(): string {
+  ensureFreshDeployStorage();
   const existingSubject = readRawStorageValue(ANONYMOUS_SUBJECT_STORAGE_KEY);
 
   if (existingSubject) {
@@ -72,6 +76,7 @@ export function getOrCreateAnonymousSubject(): string {
 }
 
 function readStorageValue<T>(key: string): T | null {
+  ensureFreshDeployStorage();
   const rawValue = readRawStorageValue(key);
 
   if (!rawValue) {
@@ -98,5 +103,34 @@ function writeStorageValue(key: string, value: unknown) {
     return;
   }
 
+  ensureFreshDeployStorage();
   window.localStorage.setItem(key, JSON.stringify(value));
+}
+
+export function ensureFreshDeployStorage() {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const storedDeployToken = window.localStorage.getItem(DEPLOY_TOKEN_STORAGE_KEY);
+
+  if (storedDeployToken === CURRENT_DEPLOY_TOKEN) {
+    return;
+  }
+
+  const keysToRemove: string[] = [];
+
+  for (let index = 0; index < window.localStorage.length; index += 1) {
+    const key = window.localStorage.key(index);
+
+    if (key?.startsWith(STORAGE_PREFIX)) {
+      keysToRemove.push(key);
+    }
+  }
+
+  for (const key of keysToRemove) {
+    window.localStorage.removeItem(key);
+  }
+
+  window.localStorage.setItem(DEPLOY_TOKEN_STORAGE_KEY, CURRENT_DEPLOY_TOKEN);
 }

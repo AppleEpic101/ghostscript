@@ -8,6 +8,7 @@ cd "$ROOT_DIR"
 pids=()
 API_PORT="${PAIRING_API_PORT:-}"
 APP_PORT="${PAIRING_APP_PORT:-}"
+DEPLOY_TOKEN="${GHOSTSCRIPT_DEPLOY_TOKEN:-$(date +%s%N)}"
 
 is_port_in_use() {
   local port="$1"
@@ -74,9 +75,11 @@ fi
 API_BASE_URL="http://localhost:${API_PORT}"
 APP_BASE_URL="http://localhost:${APP_PORT}"
 
+env GHOSTSCRIPT_DEPLOY_TOKEN="$DEPLOY_TOKEN" corepack pnpm --filter @ghostscript/pairing-api exec tsx src/resetAll.ts
+
 run_service "api" env PAIRING_API_PORT="$API_PORT" PAIRING_APP_BASE_URL="$APP_BASE_URL" corepack pnpm --filter @ghostscript/pairing-api dev
-run_service "web" env VITE_PAIRING_API_BASE_URL="$API_BASE_URL" corepack pnpm --filter @ghostscript/pairing-web exec vite --host localhost --port "$APP_PORT" --strictPort
-run_service "extension" env VITE_PAIRING_API_BASE_URL="$API_BASE_URL" corepack pnpm --filter @ghostscript/extension dev
+run_service "web" env VITE_PAIRING_API_BASE_URL="$API_BASE_URL" VITE_GHOSTSCRIPT_DEPLOY_TOKEN="$DEPLOY_TOKEN" corepack pnpm --filter @ghostscript/pairing-web exec vite --host localhost --port "$APP_PORT" --strictPort
+run_service "extension" env VITE_PAIRING_API_BASE_URL="$API_BASE_URL" VITE_GHOSTSCRIPT_DEPLOY_TOKEN="$DEPLOY_TOKEN" corepack pnpm --filter @ghostscript/extension dev
 
 echo "Running API, frontend, and extension. Press Ctrl+C to stop all services."
 echo "Pairing web: $APP_BASE_URL"
