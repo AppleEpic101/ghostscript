@@ -1,9 +1,15 @@
 import React, { useEffect, useState } from "react";
 import ReactDOM from "react-dom/client";
-import { TRUST_STATUS_LABELS, type PairingParticipant, type VaultState } from "@ghostscript/shared";
-import { confirmInvite, createInvite, joinInvite } from "../lib/pairingApi";
+import {
+  TRUST_STATUS_LABELS,
+  deriveVerificationProgress,
+  type PairingParticipant,
+  type VaultState,
+} from "@ghostscript/shared";
+import { confirmInvite, createInvite, getInviteSessionStatus, joinInvite } from "../lib/pairingApi";
 import {
   applyConfirmationResult,
+  applyInviteSessionStatus,
   buildContactFromPairing,
   readExtensionState,
   storeActivePairing,
@@ -11,6 +17,8 @@ import {
 } from "../lib/pairingStore";
 import { getRuntimeVaultState, initializeIdentityVault, lockIdentityVault, unlockIdentityVault } from "../lib/vault";
 import "./popup.css";
+
+const VERIFICATION_STATUS_POLL_MS = 3000;
 
 function OptionsApp() {
   const [vaultState, setVaultState] = useState<VaultState>("uninitialized");
@@ -34,6 +42,60 @@ function OptionsApp() {
   useEffect(() => {
     void refresh();
   }, []);
+
+  useEffect(() => {
+    const activePairing = stateSummary?.activePairing;
+
+    if (
+      !activePairing ||
+      activePairing.session.status !== "paired-unverified" ||
+      activePairing.verification?.bothConfirmed
+    ) {
+      return;
+    }
+
+    let cancelled = false;
+    let requestInFlight = false;
+
+    const refreshVerificationStatus = async () => {
+      if (requestInFlight) {
+        return;
+      }
+
+      requestInFlight = true;
+
+      try {
+        const response = await getInviteSessionStatus(activePairing.inviteCode);
+
+        if (cancelled) {
+          return;
+        }
+
+        await applyInviteSessionStatus(response);
+        await refresh();
+      } catch (nextError) {
+        if (!cancelled) {
+          setError(
+            nextError instanceof Error
+              ? nextError.message
+              : "Unable to refresh pairing verification status.",
+          );
+        }
+      } finally {
+        requestInFlight = false;
+      }
+    };
+
+    void refreshVerificationStatus();
+    const intervalId = window.setInterval(() => {
+      void refreshVerificationStatus();
+    }, VERIFICATION_STATUS_POLL_MS);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, [stateSummary?.activePairing]);
 
   async function handleUnlock() {
     setError(null);
@@ -193,6 +255,14 @@ function OptionsApp() {
 
   const activeContact = stateSummary?.contacts[0] ?? null;
   const activePairing = stateSummary?.activePairing ?? null;
+  const verificationProgress =
+    activePairing?.verification
+      ? deriveVerificationProgress(
+          activePairing.localParticipant.role,
+          activePairing.verification,
+        )
+      : null;
+  const verificationStatus = getPopupVerificationStatus(verificationProgress);
 
   return (
     <div className="popup-shell popup-shell--wide">
@@ -267,6 +337,13 @@ function OptionsApp() {
 
       <div className="popup-card popup-card--stack">
         <h2>Active state</h2>
+        {activePairing ? (
+          <div className={`popup-status-card ${verificationStatus.className}`}>
+            <strong>{verificationStatus.title}</strong>
+            <p>{verificationStatus.body}</p>
+            <span>{verificationStatus.meta}</span>
+          </div>
+        ) : null}
         <SummaryPairingRow
           label="Session"
           value={activePairing?.session.inviteCode ?? "No active pairing"}
@@ -310,6 +387,51 @@ function formatParticipant(participant: PairingParticipant | null | undefined) {
   }
 
   return `${participant.displayName} (${participant.publicKey.fingerprint})`;
+}
+
+function getPopupVerificationStatus(
+  progress: ReturnType<typeof deriveVerificationProgress> | null,
+) {
+  if (!progress) {
+    return {
+      className: "popup-status-card--waiting",
+      title: "Verification will appear here after a join.",
+      body: "Once both people are paired, this popup will show who has marked the session verified.",
+      meta: "No verification state is available yet.",
+    };
+  }
+
+  switch (progress.state) {
+    case "both-verified":
+      return {
+        className: "popup-status-card--success",
+        title: "Both people marked verified.",
+        body: "The pairing is trusted and ready for encrypted messaging.",
+        meta: "Verification complete.",
+      };
+    case "you-verified-waiting":
+      return {
+        className: "popup-status-card--waiting",
+        title: "Your side is confirmed.",
+        body: "Wait for the other participant to press Confirm safety number.",
+        meta: `Refreshing every ${VERIFICATION_STATUS_POLL_MS / 1000} seconds.`,
+      };
+    case "other-verified-waiting":
+      return {
+        className: "popup-status-card--success",
+        title: "The other participant already confirmed.",
+        body: "You can finish verification now once the safety number matches.",
+        meta: `Refreshing every ${VERIFICATION_STATUS_POLL_MS / 1000} seconds.`,
+      };
+    case "waiting-for-both":
+    default:
+      return {
+        className: "popup-status-card--waiting",
+        title: "Waiting for both people to confirm.",
+        body: "Compare the safety number on both sides, then each person should confirm.",
+        meta: `Refreshing every ${VERIFICATION_STATUS_POLL_MS / 1000} seconds.`,
+      };
+  }
 }
 
 ReactDOM.createRoot(document.getElementById("root")!).render(

@@ -2,6 +2,7 @@ import type {
   ConfirmVerificationResponse,
   ConversationState,
   IdentityKey,
+  InviteSessionStatusResponse,
   PairingParticipant,
   PairingSession,
   PairedContact,
@@ -85,6 +86,50 @@ export async function applyConfirmationResult(response: ConfirmVerificationRespo
     upsertContactRecord(
       state.contacts,
       buildContactFromPairing(counterpart, response.verification, response.trustStatus),
+    );
+  }
+
+  await writeExtensionState(state);
+  return state.activePairing;
+}
+
+export async function applyInviteSessionStatus(response: InviteSessionStatusResponse) {
+  const state = await readExtensionState();
+  const activePairing = state.activePairing;
+
+  if (!activePairing) {
+    throw new Error("No active pairing is available.");
+  }
+
+  const localParticipant =
+    activePairing.localParticipant.role === "inviter"
+      ? response.inviter
+      : response.joiner;
+  const counterpart =
+    activePairing.localParticipant.role === "inviter"
+      ? response.joiner
+      : response.inviter;
+
+  if (!localParticipant) {
+    throw new Error("The active pairing participant is missing from the latest session status.");
+  }
+
+  state.activePairing = {
+    ...activePairing,
+    session: response.session,
+    localParticipant,
+    counterpart: counterpart ?? activePairing.counterpart,
+    verification: response.verification ?? activePairing.verification,
+  };
+
+  if (counterpart && response.verification) {
+    upsertContactRecord(
+      state.contacts,
+      buildContactFromPairing(
+        counterpart,
+        response.verification,
+        response.verification.bothConfirmed ? "verified" : "paired-unverified",
+      ),
     );
   }
 

@@ -1,25 +1,103 @@
-import { useEffect, useState } from "react";
-import { mockPairingSnapshot } from "@ghostscript/shared";
+import { useEffect, useRef, useState } from "react";
+import { deriveVerificationProgress, mockPairingSnapshot } from "@ghostscript/shared";
 import { StatusPill } from "../components/StatusPill";
-import { confirmInvite } from "../lib/pairingApi";
+import { confirmInvite, getInviteSessionStatus } from "../lib/pairingApi";
 import { readStoredPairingSession, writeStoredPairingSession } from "../lib/pairingSession";
+
+const VERIFICATION_STATUS_POLL_MS = 3000;
 
 export function VerifyRoute() {
   const [storedSession, setStoredSession] = useState(readStoredPairingSession);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isPolling, setIsPolling] = useState(false);
+  const pollingRequestInFlight = useRef(false);
 
   useEffect(() => {
     setStoredSession(readStoredPairingSession());
   }, []);
 
   const verification = storedSession?.verification;
+  const progress = storedSession
+    ? deriveVerificationProgress(storedSession.participant.role, storedSession.verification)
+    : null;
   const result =
-    storedSession?.session.status === "verified" || verification?.bothConfirmed
-      ? {
-          trustStatus: "verified" as const,
-        }
+    storedSession?.session.status === "verified" || progress?.bothConfirmed
+      ? { trustStatus: "verified" as const }
       : null;
+
+  useEffect(() => {
+    if (!storedSession) {
+      setIsPolling(false);
+      return;
+    }
+
+    if (storedSession.session.status !== "paired-unverified" || progress?.bothConfirmed) {
+      setIsPolling(false);
+      return;
+    }
+
+    let cancelled = false;
+
+    const pollVerificationStatus = async () => {
+      if (pollingRequestInFlight.current) {
+        return;
+      }
+
+      pollingRequestInFlight.current = true;
+      setIsPolling(true);
+
+      try {
+        const response = await getInviteSessionStatus(storedSession.inviteCode);
+
+        if (cancelled) {
+          return;
+        }
+
+        const nextSession = {
+          inviteCode: storedSession.inviteCode,
+          participant:
+            storedSession.participant.role === "inviter"
+              ? (response.inviter ?? storedSession.participant)
+              : (response.joiner ?? storedSession.participant),
+          session: response.session,
+          verification: response.verification,
+        };
+
+        writeStoredPairingSession(nextSession);
+        setStoredSession(nextSession);
+      } catch (error) {
+        if (!cancelled) {
+          setErrorMessage(
+            error instanceof Error ? error.message : "Unable to refresh verification status.",
+          );
+        }
+      } finally {
+        pollingRequestInFlight.current = false;
+
+        if (!cancelled) {
+          setIsPolling(false);
+        }
+      }
+    };
+
+    void pollVerificationStatus();
+    const intervalId = window.setInterval(() => {
+      void pollVerificationStatus();
+    }, VERIFICATION_STATUS_POLL_MS);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+      pollingRequestInFlight.current = false;
+      setIsPolling(false);
+    };
+  }, [
+    progress?.bothConfirmed,
+    storedSession?.inviteCode,
+    storedSession?.participant.role,
+    storedSession?.session.status,
+  ]);
 
   const handleConfirm = async () => {
     if (!storedSession) {
@@ -47,6 +125,16 @@ export function VerifyRoute() {
       setIsSubmitting(false);
     }
   };
+
+  const statusBox = getVerificationStatusBox(progress, isPolling);
+  const confirmButtonLabel = progress?.bothConfirmed
+    ? "Verified"
+    : progress?.localConfirmed
+      ? "Marked verified"
+      : isSubmitting
+        ? "Confirming..."
+        : "Mark verified";
+  const confirmDisabled = isSubmitting || Boolean(progress?.localConfirmed);
 
   return (
     <section className="panel-grid single-column">
@@ -84,11 +172,66 @@ export function VerifyRoute() {
             </p>
           </div>
         </div>
-        <button className="primary-button" onClick={handleConfirm} disabled={isSubmitting}>
-          {isSubmitting ? "Confirming..." : "Mark verified"}
+        <div className={`invite-status-box ${statusBox.className}`}>
+          <p className="invite-status-title">{statusBox.title}</p>
+          <p>{statusBox.body}</p>
+          <p className="invite-status-meta">{statusBox.meta}</p>
+        </div>
+        <button className="primary-button" onClick={handleConfirm} disabled={confirmDisabled}>
+          {confirmButtonLabel}
         </button>
         {errorMessage ? <p>{errorMessage}</p> : null}
       </article>
     </section>
   );
+}
+
+function getVerificationStatusBox(
+  progress: ReturnType<typeof deriveVerificationProgress> | null,
+  isPolling: boolean,
+) {
+  const pollMeta = isPolling
+    ? "Checking for updates now..."
+    : `Checking every ${VERIFICATION_STATUS_POLL_MS / 1000} seconds.`;
+
+  if (!progress) {
+    return {
+      className: "invite-status-box-warning",
+      title: "Verification is not ready yet.",
+      body: "Create or join an invite before marking this pairing as verified.",
+      meta: "No active pairing session is stored in this browser.",
+    };
+  }
+
+  switch (progress.state) {
+    case "both-verified":
+      return {
+        className: "invite-status-box-success",
+        title: "Both people marked this pairing verified.",
+        body: "This contact is now trusted for decryption and encrypted messaging.",
+        meta: "Verification is complete for this session.",
+      };
+    case "you-verified-waiting":
+      return {
+        className: "invite-status-box-waiting",
+        title: "Your side is verified.",
+        body: "Wait for the other person to press Mark verified on their side.",
+        meta: pollMeta,
+      };
+    case "other-verified-waiting":
+      return {
+        className: "invite-status-box-success",
+        title: "The other person already marked verified.",
+        body: "You can finish verification now after confirming the same safety number.",
+        meta: pollMeta,
+      };
+    case "waiting-for-both":
+    default:
+      return {
+        className: "invite-status-box-waiting",
+        title: "Verification is waiting on both people.",
+        body: "Compare the safety number and hash words, then each person should mark verified.",
+        meta: pollMeta,
+      };
+  }
 }

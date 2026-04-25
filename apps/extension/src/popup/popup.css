@@ -124,3 +124,36 @@ input {
   background: rgba(248, 113, 113, 0.12);
   color: #ffd1d1;
 }
+
+.popup-status-card {
+  display: grid;
+  gap: 6px;
+  padding: 12px 14px;
+  border-radius: 14px;
+}
+
+.popup-status-card strong {
+  font-size: 0.95rem;
+}
+
+.popup-status-card p,
+.popup-status-card span {
+  margin: 0;
+  color: inherit;
+  line-height: 1.4;
+}
+
+.popup-status-card span {
+  font-size: 0.84rem;
+  opacity: 0.84;
+}
+
+.popup-status-card--waiting {
+  background: rgba(96, 165, 250, 0.12);
+  color: #d8ebff;
+}
+
+.popup-status-card--success {
+  background: rgba(74, 222, 128, 0.12);
+  color: #d5ffe2;
+}

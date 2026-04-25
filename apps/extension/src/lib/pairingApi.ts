@@ -3,6 +3,7 @@ import type {
   ConfirmVerificationResponse,
   CreateInviteRequest,
   CreateInviteResponse,
+  InviteSessionStatusResponse,
   JoinInviteRequest,
   JoinInviteResponse,
 } from "@ghostscript/shared";
@@ -20,6 +21,14 @@ export async function createInvite(request: CreateInviteRequest) {
   return requestJson<CreateInviteResponse>("/pairing/invites", request);
 }
 
+export async function getInviteSessionStatus(inviteCode: string) {
+  return requestJson<InviteSessionStatusResponse>(
+    `/pairing/invites/${encodeURIComponent(inviteCode)}`,
+    undefined,
+    "GET",
+  );
+}
+
 export async function joinInvite(inviteCode: string, request: JoinInviteRequest) {
   return requestJson<JoinInviteResponse>(
     `/pairing/invites/${encodeURIComponent(inviteCode)}/join`,
@@ -34,16 +43,19 @@ export async function confirmInvite(inviteCode: string, request: ConfirmVerifica
   );
 }
 
-async function requestJson<T>(path: string, body: unknown): Promise<T> {
+async function requestJson<T>(path: string, body?: unknown, method = "POST"): Promise<T> {
   let response: Response;
 
   try {
     response = await fetch(`${getPairingApiBaseUrl()}${path}`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body),
+      method,
+      headers:
+        body === undefined
+          ? undefined
+          : {
+              "Content-Type": "application/json",
+            },
+      body: body === undefined ? undefined : JSON.stringify(body),
     });
   } catch (error) {
     if (error instanceof TypeError) {
