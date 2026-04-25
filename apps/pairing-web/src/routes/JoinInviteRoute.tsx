@@ -9,9 +9,22 @@ export function JoinInviteRoute() {
 
   return (
     <section className="panel-grid single-column">
+      <article className="panel split-panel">
+        <div className="split-copy">
+          <p className="panel-label">Join invite</p>
+          <h2>Attach a browser identity to the pairing session.</h2>
+          <p>
+            Add the local display name and connect this browser session to the
+            invite before verification.
+          </p>
+        </div>
+        <div className="stack-note">
+          <span className="note-kicker">Phase 02</span>
+          <p>The contact is paired, but not yet verified.</p>
+        </div>
+      </article>
+
       <article className="panel">
-        <p className="panel-label">Join invite</p>
-        <h2>Bind a browser identity to the pairing session</h2>
         <div className="field-row">
           <label className="field">
             <span>Invite code</span>
@@ -23,8 +36,10 @@ export function JoinInviteRoute() {
           </label>
         </div>
         <div className="invite-card">
-          <strong>{response.contact.displayName}</strong>
-          <p>{response.contact.discordHandle}</p>
+          <p className="panel-label">Session preview</p>
+          <strong>{response.contact.displayName || "Name pending"}</strong>
+          <p>{response.contact.discordHandle || "@discord-handle"}</p>
+          <p>Joined {new Date(response.joinedAt).toLocaleTimeString()}</p>
           <StatusPill status={response.contact.trustStatus} />
         </div>
       </article>
