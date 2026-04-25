@@ -31,14 +31,23 @@ export interface PublicKeyBundle {
 export interface IdentityKey {
   id: string;
   algorithm: "Ed25519";
+  publicKey?: string;
   fingerprint: string;
+  senderId?: string;
   createdAt: string;
+  wrappedPrivateKey?: string;
+  wrapSalt?: string;
+  wrapNonce?: string;
 }
 
 export interface PairedContact {
   id: string;
   displayName: string;
   discordHandle: string;
+  participantId?: string;
+  publicKey?: PublicKeyBundle;
+  senderId?: string;
+  verifiedAt?: string | null;
   trustStatus: TrustStatus;
   safetyNumber: string;
   hashWords: string[];
@@ -51,19 +60,36 @@ export interface ConversationState {
   trustStatus: TrustStatus;
   canDecrypt: boolean;
   lastMessageId: number;
+  sendCounter?: number;
+  receiveWatermark?: number;
+  sharedSecretRef?: string;
+  lastProcessedDiscordMessageId?: string | null;
   locked: boolean;
   imageStegoEnabled: boolean;
 }
 
-export interface EncodedGhostscriptMessage {
+export interface MessageEnvelope {
   v: number;
   senderId: string;
   msgId: number;
-  coverText: string;
   codec: "base16-zero-width-v1";
   tag: string;
   ct: string;
 }
+
+export interface EncodedGhostscriptMessage extends MessageEnvelope {
+  coverText: string;
+}
+
+export interface StegoCodec {
+  encode(bytes: Uint8Array): string;
+  decode(text: string): Uint8Array;
+  hasPayload(text: string): boolean;
+}
+
+export type VaultState = "locked" | "unlocked" | "uninitialized";
+
+export type OverlayMessageState = "plain" | "locked" | "pair-required" | "tampered";
 
 export interface CreateInviteRequest {
   inviterName: string;
@@ -130,6 +156,7 @@ export interface ConfirmVerificationRequest {
 export interface ConfirmVerificationResponse {
   session: PairingSession;
   participant: PairingParticipant;
+  counterpart?: PairingParticipant;
   verification: VerificationState;
   trustStatus: Extract<TrustStatus, "paired-unverified" | "verified">;
 }

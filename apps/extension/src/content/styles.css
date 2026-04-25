@@ -1,44 +1,130 @@
-#ghostscript-root {
-  margin: 12px 16px;
+:host {
+  all: initial;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+.ghostscript-card,
+.ghostscript-inline {
   font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
 }
 
 .ghostscript-card {
-  border-radius: 18px;
+  margin: 12px 16px;
+  border-radius: 22px;
   padding: 18px;
   background:
-    linear-gradient(135deg, rgba(10, 20, 40, 0.94), rgba(18, 56, 72, 0.9));
-  border: 1px solid rgba(125, 211, 198, 0.3);
+    radial-gradient(circle at top left, rgba(100, 215, 194, 0.18), transparent 28%),
+    linear-gradient(145deg, rgba(8, 18, 34, 0.97), rgba(18, 49, 73, 0.94));
+  border: 1px solid rgba(125, 211, 198, 0.28);
   color: #eff6ff;
-  box-shadow: 0 16px 40px rgba(5, 10, 20, 0.34);
+  box-shadow: 0 18px 44px rgba(4, 10, 20, 0.32);
+}
+
+.ghostscript-topline {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
 }
 
 .ghostscript-eyebrow {
-  margin: 0 0 8px;
+  margin: 0 0 6px;
   text-transform: uppercase;
   letter-spacing: 0.12em;
   font-size: 0.72rem;
   color: #7dd3c6;
 }
 
-.ghostscript-status-row {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  margin: 16px 0;
-  color: #c7d6e9;
+.ghostscript-title {
+  margin: 0;
+  font-size: 1.2rem;
 }
 
-.ghostscript-textarea {
+.ghostscript-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: rgba(125, 211, 198, 0.12);
+  border: 1px solid rgba(125, 211, 198, 0.25);
+  color: #d7fff5;
+  font-size: 0.82rem;
+  white-space: nowrap;
+}
+
+.ghostscript-copy {
+  margin: 12px 0 0;
+  color: #c7d6e9;
+  line-height: 1.5;
+}
+
+.ghostscript-grid {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.ghostscript-field {
+  display: grid;
+  gap: 8px;
+  color: #d7e6f7;
+  font-size: 0.92rem;
+}
+
+.ghostscript-textarea,
+.ghostscript-input {
   width: 100%;
-  min-height: 88px;
-  resize: vertical;
-  margin-bottom: 12px;
   border-radius: 14px;
   border: 1px solid rgba(194, 221, 255, 0.18);
   background: rgba(4, 10, 22, 0.75);
   color: inherit;
   padding: 12px 14px;
+  font: inherit;
+}
+
+.ghostscript-textarea {
+  min-height: 112px;
+  resize: vertical;
+}
+
+.ghostscript-textarea--compact {
+  min-height: 84px;
+}
+
+.ghostscript-status-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  gap: 8px 12px;
+  align-items: center;
+  margin: 16px 0;
+  color: #c7d6e9;
+}
+
+.ghostscript-lockbox,
+.ghostscript-actions,
+.ghostscript-callout {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+
+.ghostscript-callout {
+  padding: 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(251, 191, 36, 0.24);
+  background: rgba(251, 191, 36, 0.08);
+}
+
+.ghostscript-callout p {
+  margin: 0;
+  flex: 1 1 280px;
+  color: #fff2c7;
 }
 
 .ghostscript-button {
@@ -48,5 +134,73 @@
   background: linear-gradient(135deg, #7dd3c6, #93c5fd);
   color: #041321;
   cursor: pointer;
-  font-weight: 600;
+  font-weight: 700;
+  font: inherit;
+}
+
+.ghostscript-button[disabled] {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.ghostscript-button--secondary {
+  background: rgba(12, 22, 38, 0.92);
+  color: #e7f1ff;
+  border: 1px solid rgba(194, 221, 255, 0.18);
+}
+
+.ghostscript-feedback {
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  border-radius: 14px;
+}
+
+.ghostscript-feedback--success {
+  background: rgba(74, 222, 128, 0.12);
+  color: #d5ffe2;
+}
+
+.ghostscript-feedback--error {
+  background: rgba(248, 113, 113, 0.12);
+  color: #ffd1d1;
+}
+
+.ghostscript-inline {
+  margin-top: 8px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(194, 221, 255, 0.16);
+  background: rgba(8, 18, 34, 0.92);
+  color: #eff6ff;
+}
+
+.ghostscript-inline--plain {
+  border-color: rgba(125, 211, 198, 0.25);
+}
+
+.ghostscript-inline--locked,
+.ghostscript-inline--pair-required {
+  border-color: rgba(251, 191, 36, 0.24);
+}
+
+.ghostscript-inline--tampered {
+  border-color: rgba(248, 113, 113, 0.28);
+}
+
+.ghostscript-inline__title {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 0.84rem;
+}
+
+.ghostscript-inline__body {
+  margin: 0;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+@media (max-width: 900px) {
+  .ghostscript-grid {
+    grid-template-columns: 1fr;
+  }
 }

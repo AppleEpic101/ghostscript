@@ -18,14 +18,23 @@ import type {
 const mockIdentity = {
   id: "id_ghost_alice",
   algorithm: "Ed25519" as const,
+  publicKey: "Z2hvc3RzY3JpcHQtZGVtby1wdWJsaWMta2V5",
   fingerprint: "9E7A 6C1D 14BF 44F0",
+  senderId: "ed25519:9e7a6c1d",
   createdAt: "2026-04-24T17:00:00.000Z",
+  wrappedPrivateKey: "demo-wrapped-private-key",
+  wrapSalt: "demo-wrap-salt",
+  wrapNonce: "demo-wrap-nonce",
 };
 
 const mockContact = {
   id: "contact_placeholder",
   displayName: "",
   discordHandle: "",
+  participantId: "participant_joiner_01",
+  publicKey: undefined,
+  senderId: "ed25519:12ab34cd",
+  verifiedAt: null,
   trustStatus: "paired-unverified" as const,
   safetyNumber: "4921 1108 6627 5529 8891 0142",
   hashWords: ["cedar", "orbit", "signal", "cobalt"],
@@ -38,6 +47,10 @@ const mockConversation = {
   trustStatus: mockContact.trustStatus,
   canDecrypt: false,
   lastMessageId: 12,
+  sendCounter: 12,
+  receiveWatermark: 11,
+  sharedSecretRef: "shared-secret-demo",
+  lastProcessedDiscordMessageId: "discord-message-demo",
   locked: false,
   imageStegoEnabled: false,
 };
@@ -161,6 +174,25 @@ export function mockConfirmVerification(
       ...mockInviter,
       id: request.participantId,
       confirmedAt: "2026-04-24T19:10:00.000Z",
+    },
+    counterpart: {
+      id: mockSession.joinerId ?? "participant_joiner_01",
+      sessionId: mockSession.id,
+      role: "joiner",
+      displayName: "Ghost Bob",
+      identity: {
+        provider: "google",
+        subject: "bob-subject",
+        email: "bob@example.com",
+        emailVerified: true,
+      },
+      publicKey: {
+        ...mockPublicKey,
+        keyId: "key_ghost_bob",
+        fingerprint: "12AB 34CD 56EF 7890",
+      },
+      confirmedAt: "2026-04-24T19:10:00.000Z",
+      createdAt: "2026-04-24T19:05:00.000Z",
     },
     verification: {
       ...mockVerification,

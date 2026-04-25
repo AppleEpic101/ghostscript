@@ -285,10 +285,15 @@ export class PairingService {
       nextJoiner,
       nextSession.verified_at,
     );
+    const counterpart =
+      confirmedParticipant.role === "inviter"
+        ? mapParticipant(nextJoiner)
+        : mapParticipant(nextInviter);
 
     return {
       session: mapSession(nextSession),
       participant: mapParticipant(confirmedParticipant),
+      counterpart,
       verification,
       trustStatus: verification.bothConfirmed ? "verified" : "paired-unverified",
     };
@@ -557,6 +562,10 @@ function assertJoinable(session: PairingSessionRow) {
   if (session.joiner_id) {
     throw new ApiError(409, "This invite has already been used.");
   }
+
+  if (session.status === "verified") {
+    throw new ApiError(409, "This invite has already been verified.");
+  }
 }
 
 function assertConfirmable(session: PairingSessionRow) {
@@ -566,5 +575,9 @@ function assertConfirmable(session: PairingSessionRow) {
 
   if (new Date(session.expires_at).getTime() <= Date.now()) {
     throw new ApiError(410, "This invite has expired.");
+  }
+
+  if (session.status === "pending") {
+    throw new ApiError(409, "Both participants must join before verification can start.");
   }
 }
