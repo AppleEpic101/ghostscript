@@ -79,13 +79,25 @@ export function buildDemoPublicKey(user: AuthUser | null, displayName: string): 
 }
 
 async function requestJson<T>(path: string, body: unknown): Promise<T> {
-  const response = await fetch(`${getPairingApiBaseUrl()}${path}`, {
-    body: JSON.stringify(body),
-    headers: {
-      "Content-Type": "application/json",
-    },
-    method: "POST",
-  });
+  let response: Response;
+
+  try {
+    response = await fetch(`${getPairingApiBaseUrl()}${path}`, {
+      body: JSON.stringify(body),
+      headers: {
+        "Content-Type": "application/json",
+      },
+      method: "POST",
+    });
+  } catch (error) {
+    if (error instanceof TypeError) {
+      throw new Error(
+        `Unable to reach the pairing API at ${getPairingApiBaseUrl()}. Start \`pnpm dev:api\` and confirm apps/pairing-api/.env uses your Supabase backend secret/service-role key.`,
+      );
+    }
+
+    throw error;
+  }
 
   const payload = (await response.json().catch(() => null)) as { error?: string } | null;
 

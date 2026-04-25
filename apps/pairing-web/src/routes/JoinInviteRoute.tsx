@@ -5,15 +5,25 @@ import { useAuth } from "../auth/AuthContext";
 import { AuthGate } from "../components/AuthGate";
 import { StatusPill } from "../components/StatusPill";
 import { buildDemoPublicKey, buildPairingIdentity, joinInvite } from "../lib/pairingApi";
-import { writeStoredPairingSession } from "../lib/pairingSession";
+import {
+  readStoredJoinInviteState,
+  writeStoredJoinInviteState,
+  writeStoredPairingSession,
+} from "../lib/pairingSession";
 
 export function JoinInviteRoute() {
   const { isAuthenticated, user } = useAuth();
   const [searchParams] = useSearchParams();
-  const [inviteCode, setInviteCode] = useState(searchParams.get("code") ?? "GHOST-4827");
-  const [joinerName, setJoinerName] = useState(user?.name ?? "");
-  const [hasEditedJoinerName, setHasEditedJoinerName] = useState(false);
-  const [response, setResponse] = useState<JoinInviteResponse | null>(null);
+  const storedState = readStoredJoinInviteState();
+  const queryInviteCode = searchParams.get("code");
+  const [inviteCode, setInviteCode] = useState(
+    queryInviteCode ?? storedState?.inviteCode ?? "GHOST-4827",
+  );
+  const [joinerName, setJoinerName] = useState(storedState?.joinerName ?? user?.name ?? "");
+  const [hasEditedJoinerName, setHasEditedJoinerName] = useState(
+    storedState?.hasEditedJoinerName ?? false,
+  );
+  const [response, setResponse] = useState<JoinInviteResponse | null>(storedState?.response ?? null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -22,6 +32,23 @@ export function JoinInviteRoute() {
       setJoinerName(user.name);
     }
   }, [hasEditedJoinerName, user?.name]);
+
+  useEffect(() => {
+    if (!queryInviteCode) {
+      return;
+    }
+
+    setInviteCode(queryInviteCode);
+  }, [queryInviteCode]);
+
+  useEffect(() => {
+    writeStoredJoinInviteState({
+      inviteCode,
+      joinerName,
+      hasEditedJoinerName,
+      response,
+    });
+  }, [hasEditedJoinerName, inviteCode, joinerName, response]);
 
   if (!isAuthenticated) {
     return (

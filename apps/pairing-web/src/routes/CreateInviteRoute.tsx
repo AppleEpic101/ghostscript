@@ -7,13 +7,18 @@ import {
   buildPairingIdentity,
   createInvite,
 } from "../lib/pairingApi";
-import { writeStoredPairingSession } from "../lib/pairingSession";
+import {
+  readStoredCreateInviteState,
+  writeStoredCreateInviteState,
+  writeStoredPairingSession,
+} from "../lib/pairingSession";
 
 export function CreateInviteRoute() {
   const { isAuthenticated, user } = useAuth();
-  const [name, setName] = useState(user?.name ?? "Ghostscript User");
-  const [hasEditedName, setHasEditedName] = useState(false);
-  const [invite, setInvite] = useState<CreateInviteResponse | null>(null);
+  const storedState = readStoredCreateInviteState();
+  const [name, setName] = useState(storedState?.inviterName ?? user?.name ?? "Ghostscript User");
+  const [hasEditedName, setHasEditedName] = useState(storedState?.hasEditedName ?? false);
+  const [invite, setInvite] = useState<CreateInviteResponse | null>(storedState?.invite ?? null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -22,6 +27,14 @@ export function CreateInviteRoute() {
       setName(user.name);
     }
   }, [hasEditedName, user?.name]);
+
+  useEffect(() => {
+    writeStoredCreateInviteState({
+      inviterName: name,
+      hasEditedName,
+      invite,
+    });
+  }, [hasEditedName, invite, name]);
 
   if (!isAuthenticated) {
     return (

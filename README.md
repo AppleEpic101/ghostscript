@@ -29,19 +29,38 @@ cp apps/pairing-web/.env.example apps/pairing-web/.env.local
 
 Then set `VITE_GOOGLE_CLIENT_ID` to a Google Identity Services web client ID that includes your local Vite origin, such as `http://localhost:5173`.
 
-3. Run the pairing web app:
+3. Configure the pairing API:
+
+```bash
+cp apps/pairing-api/.env.example apps/pairing-api/.env
+```
+
+Then update:
+
+- `SUPABASE_URL` with your project URL
+- `SUPABASE_SERVICE_ROLE_KEY` with your backend secret/service-role key
+
+Do not use a Supabase `sb_publishable_...` key here. The pairing API writes directly to Supabase and needs the server-side privileged key.
+
+4. Run the pairing API:
+
+```bash
+corepack pnpm dev:api
+```
+
+5. Run the pairing web app in a second terminal:
 
 ```bash
 corepack pnpm dev:web
 ```
 
-4. Build the extension:
+6. Build the extension:
 
 ```bash
 corepack pnpm --filter @ghostscript/extension build
 ```
 
-5. Load the unpacked extension in Chrome:
+7. Load the unpacked extension in Chrome:
    - Open `chrome://extensions`
    - Enable Developer Mode
    - Click **Load unpacked**
