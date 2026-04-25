@@ -5,6 +5,29 @@ export type TrustStatus =
   | "locked"
   | "tampered/decryption-failed";
 
+export type PairingSessionStatus =
+  | "pending"
+  | "paired-unverified"
+  | "verified"
+  | "invalidated";
+
+export type ParticipantRole = "inviter" | "joiner";
+
+export interface PairingIdentity {
+  provider: "google" | "anonymous";
+  subject: string;
+  email?: string;
+  emailVerified?: boolean;
+}
+
+export interface PublicKeyBundle {
+  keyId: string;
+  algorithm: "Ed25519";
+  publicKey: string;
+  fingerprint: string;
+  createdAt: string;
+}
+
 export interface IdentityKey {
   id: string;
   algorithm: "Ed25519";
@@ -44,34 +67,87 @@ export interface EncodedGhostscriptMessage {
 
 export interface CreateInviteRequest {
   inviterName: string;
+  inviterIdentity: PairingIdentity;
+  publicKey: PublicKeyBundle;
+}
+
+export interface PairingSession {
+  id: string;
+  inviteCode: string;
+  status: PairingSessionStatus;
+  inviterId: string;
+  joinerId: string | null;
+  expiresAt: string;
+  joinedAt: string | null;
+  verifiedAt: string | null;
+  invalidatedAt: string | null;
+  createdAt: string;
+}
+
+export interface PairingParticipant {
+  id: string;
+  sessionId: string;
+  role: ParticipantRole;
+  displayName: string;
+  identity: PairingIdentity;
+  publicKey: PublicKeyBundle;
+  confirmedAt: string | null;
+  createdAt: string;
+}
+
+export interface VerificationState {
+  safetyNumber: string;
+  hashWords: string[];
+  inviterConfirmedAt: string | null;
+  joinerConfirmedAt: string | null;
+  bothConfirmed: boolean;
+  verifiedAt: string | null;
 }
 
 export interface CreateInviteResponse {
-  inviteCode: string;
-  expiresAt: string;
+  session: PairingSession;
+  inviter: PairingParticipant;
   inviteUrl: string;
 }
 
 export interface JoinInviteRequest {
-  inviteCode: string;
   joinerName: string;
+  joinerIdentity: PairingIdentity;
+  publicKey: PublicKeyBundle;
 }
 
 export interface JoinInviteResponse {
-  inviteCode: string;
-  joinedAt: string;
-  contact: PairedContact;
+  session: PairingSession;
+  inviter: PairingParticipant;
+  joiner: PairingParticipant;
+  verification: VerificationState;
 }
 
 export interface ConfirmVerificationRequest {
-  inviteCode: string;
-  confirmedBy: string;
+  participantId: string;
 }
 
 export interface ConfirmVerificationResponse {
-  inviteCode: string;
-  verifiedAt: string;
-  trustStatus: Extract<TrustStatus, "verified">;
+  session: PairingSession;
+  participant: PairingParticipant;
+  verification: VerificationState;
+  trustStatus: Extract<TrustStatus, "paired-unverified" | "verified">;
+}
+
+export interface PublicKeyLookupResponse {
+  participantId: string;
+  sessionId: string;
+  sessionStatus: PairingSessionStatus;
+  publicKey: PublicKeyBundle;
+}
+
+export interface ResetPairingRequest {
+  inviteCode?: string;
+  participantId?: string;
+}
+
+export interface ResetPairingResponse {
+  session: PairingSession;
 }
 
 export interface PairingSessionSnapshot {

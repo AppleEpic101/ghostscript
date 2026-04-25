@@ -1,22 +1,27 @@
 import { useEffect, useState } from "react";
-import { mockJoinInvite } from "@ghostscript/shared";
+import type { JoinInviteResponse } from "@ghostscript/shared";
+import { useSearchParams } from "react-router-dom";
 import { useAuth } from "../auth/AuthContext";
 import { AuthGate } from "../components/AuthGate";
 import { StatusPill } from "../components/StatusPill";
+import { buildDemoPublicKey, buildPairingIdentity, joinInvite } from "../lib/pairingApi";
+import { writeStoredPairingSession } from "../lib/pairingSession";
 
 export function JoinInviteRoute() {
   const { isAuthenticated, user } = useAuth();
-  const [inviteCode, setInviteCode] = useState("GHOST-4827");
+  const [searchParams] = useSearchParams();
+  const [inviteCode, setInviteCode] = useState(searchParams.get("code") ?? "GHOST-4827");
   const [joinerName, setJoinerName] = useState(user?.name ?? "");
   const [hasEditedJoinerName, setHasEditedJoinerName] = useState(false);
+  const [response, setResponse] = useState<JoinInviteResponse | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
     if (user?.name && !hasEditedJoinerName) {
       setJoinerName(user.name);
     }
   }, [hasEditedJoinerName, user?.name]);
-
-  const response = mockJoinInvite({ inviteCode, joinerName });
 
   if (!isAuthenticated) {
     return (
@@ -37,6 +42,29 @@ export function JoinInviteRoute() {
       </AuthGate>
     );
   }
+
+  const handleJoinInvite = async () => {
+    try {
+      setIsSubmitting(true);
+      setErrorMessage(null);
+      const nextResponse = await joinInvite(inviteCode.toUpperCase(), {
+        joinerIdentity: buildPairingIdentity(user),
+        joinerName,
+        publicKey: buildDemoPublicKey(user, joinerName),
+      });
+      setResponse(nextResponse);
+      writeStoredPairingSession({
+        inviteCode: nextResponse.session.inviteCode,
+        participant: nextResponse.joiner,
+        session: nextResponse.session,
+        verification: nextResponse.verification,
+      });
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Unable to join invite.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   return (
     <section className="panel-grid single-column">
@@ -74,10 +102,23 @@ export function JoinInviteRoute() {
         </div>
         <div className="invite-card">
           <p className="panel-label">Session preview</p>
-          <strong>{response.contact.displayName || "Name pending"}</strong>
+          <strong>{response?.joiner.displayName || "Name pending"}</strong>
           <p>{user?.email}</p>
-          <p>Joined {new Date(response.joinedAt).toLocaleTimeString()}</p>
-          <StatusPill status={response.contact.trustStatus} />
+          <p>
+            {response?.session.joinedAt
+              ? `Joined ${new Date(response.session.joinedAt).toLocaleTimeString()}`
+              : "Waiting to join this invite"}
+          </p>
+          <StatusPill status={response?.session.status === "verified" ? "verified" : "paired-unverified"} />
+          <button
+            className="primary-button"
+            type="button"
+            onClick={handleJoinInvite}
+            disabled={isSubmitting}
+          >
+            {isSubmitting ? "Joining..." : "Join invite"}
+          </button>
+          {errorMessage ? <p>{errorMessage}</p> : null}
         </div>
       </article>
     </section>

@@ -7,6 +7,11 @@ import type {
   EncodedGhostscriptMessage,
   JoinInviteRequest,
   JoinInviteResponse,
+  PairingParticipant,
+  PairingSession,
+  PublicKeyBundle,
+  ResetPairingResponse,
+  VerificationState,
   PairingSessionSnapshot,
 } from "./types";
 
@@ -47,6 +52,52 @@ const mockMessage: EncodedGhostscriptMessage = {
   ct: "d4f17f0e1a5d1fbc0c91",
 };
 
+const mockPublicKey: PublicKeyBundle = {
+  keyId: "key_ghost_alice",
+  algorithm: "Ed25519",
+  publicKey: "Z2hvc3RzY3JpcHQtZGVtby1wdWJsaWMta2V5",
+  fingerprint: mockIdentity.fingerprint,
+  createdAt: mockIdentity.createdAt,
+};
+
+const mockSession: PairingSession = {
+  id: "session_ghost_01",
+  inviteCode: "GHOST-4827",
+  status: "paired-unverified",
+  inviterId: "participant_inviter_01",
+  joinerId: "participant_joiner_01",
+  expiresAt: "2026-04-24T21:30:00.000Z",
+  joinedAt: "2026-04-24T19:05:00.000Z",
+  verifiedAt: null,
+  invalidatedAt: null,
+  createdAt: "2026-04-24T18:00:00.000Z",
+};
+
+const mockInviter: PairingParticipant = {
+  id: mockSession.inviterId,
+  sessionId: mockSession.id,
+  role: "inviter",
+  displayName: "Ghost Alice",
+  identity: {
+    provider: "google",
+    subject: "alice-subject",
+    email: "alice@example.com",
+    emailVerified: true,
+  },
+  publicKey: mockPublicKey,
+  confirmedAt: "2026-04-24T19:12:00.000Z",
+  createdAt: mockSession.createdAt,
+};
+
+const mockVerification: VerificationState = {
+  safetyNumber: mockContact.safetyNumber,
+  hashWords: mockContact.hashWords,
+  inviterConfirmedAt: mockInviter.confirmedAt,
+  joinerConfirmedAt: null,
+  bothConfirmed: false,
+  verifiedAt: null,
+};
+
 export const mockPairingSnapshot: PairingSessionSnapshot = {
   identity: mockIdentity,
   contact: mockContact,
@@ -61,20 +112,39 @@ export function mockCreateInvite(
   const inviteCode = `${slug.slice(0, 5)}-4827`.toUpperCase();
 
   return {
-    inviteCode,
-    expiresAt: "2026-04-24T21:30:00.000Z",
+    session: {
+      ...mockSession,
+      inviteCode,
+      status: "pending",
+      joinerId: null,
+      joinedAt: null,
+    },
+    inviter: {
+      ...mockInviter,
+      displayName: request.inviterName,
+      identity: request.inviterIdentity,
+      publicKey: request.publicKey,
+      confirmedAt: null,
+    },
     inviteUrl: `https://ghostscript.app/invite/${inviteCode}`,
   };
 }
 
 export function mockJoinInvite(request: JoinInviteRequest): JoinInviteResponse {
   return {
-    inviteCode: request.inviteCode.toUpperCase(),
-    joinedAt: "2026-04-24T19:05:00.000Z",
-    contact: {
-      ...mockContact,
+    session: mockSession,
+    inviter: mockInviter,
+    joiner: {
+      id: mockSession.joinerId ?? "participant_joiner_01",
+      sessionId: mockSession.id,
+      role: "joiner",
       displayName: request.joinerName,
+      identity: request.joinerIdentity,
+      publicKey: request.publicKey,
+      confirmedAt: null,
+      createdAt: "2026-04-24T19:05:00.000Z",
     },
+    verification: mockVerification,
   };
 }
 
@@ -82,8 +152,32 @@ export function mockConfirmVerification(
   request: ConfirmVerificationRequest,
 ): ConfirmVerificationResponse {
   return {
-    inviteCode: request.inviteCode.toUpperCase(),
-    verifiedAt: "2026-04-24T19:10:00.000Z",
+    session: {
+      ...mockSession,
+      status: "verified",
+      verifiedAt: "2026-04-24T19:10:00.000Z",
+    },
+    participant: {
+      ...mockInviter,
+      id: request.participantId,
+      confirmedAt: "2026-04-24T19:10:00.000Z",
+    },
+    verification: {
+      ...mockVerification,
+      joinerConfirmedAt: "2026-04-24T19:10:00.000Z",
+      bothConfirmed: true,
+      verifiedAt: "2026-04-24T19:10:00.000Z",
+    },
     trustStatus: "verified",
+  };
+}
+
+export function mockResetPairing(): ResetPairingResponse {
+  return {
+    session: {
+      ...mockSession,
+      status: "invalidated",
+      invalidatedAt: "2026-04-24T19:20:00.000Z",
+    },
   };
 }

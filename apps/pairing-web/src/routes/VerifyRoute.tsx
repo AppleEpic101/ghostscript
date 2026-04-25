@@ -1,12 +1,20 @@
-import { useState } from "react";
-import { mockConfirmVerification, mockPairingSnapshot } from "@ghostscript/shared";
+import { useEffect, useState } from "react";
+import { mockPairingSnapshot } from "@ghostscript/shared";
 import { useAuth } from "../auth/AuthContext";
 import { AuthGate } from "../components/AuthGate";
 import { StatusPill } from "../components/StatusPill";
+import { confirmInvite } from "../lib/pairingApi";
+import { readStoredPairingSession, writeStoredPairingSession } from "../lib/pairingSession";
 
 export function VerifyRoute() {
   const { isAuthenticated, user } = useAuth();
-  const [confirmed, setConfirmed] = useState(false);
+  const [storedSession, setStoredSession] = useState(readStoredPairingSession);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    setStoredSession(readStoredPairingSession());
+  }, []);
 
   if (!isAuthenticated) {
     return (
@@ -28,12 +36,40 @@ export function VerifyRoute() {
     );
   }
 
-  const result = confirmed
-    ? mockConfirmVerification({
-        inviteCode: "GHOST-4827",
-        confirmedBy: user?.email ?? "local-user",
-      })
-    : null;
+  const verification = storedSession?.verification;
+  const result =
+    storedSession?.session.status === "verified" || verification?.bothConfirmed
+      ? {
+          trustStatus: "verified" as const,
+        }
+      : null;
+
+  const handleConfirm = async () => {
+    if (!storedSession) {
+      setErrorMessage("Create or join an invite before confirming.");
+      return;
+    }
+
+    try {
+      setIsSubmitting(true);
+      setErrorMessage(null);
+      const response = await confirmInvite(storedSession.inviteCode, {
+        participantId: storedSession.participant.id,
+      });
+      const nextSession = {
+        inviteCode: storedSession.inviteCode,
+        participant: response.participant,
+        session: response.session,
+        verification: response.verification,
+      };
+      writeStoredPairingSession(nextSession);
+      setStoredSession(nextSession);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Unable to confirm pairing.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   return (
     <section className="panel-grid single-column">
@@ -45,9 +81,11 @@ export function VerifyRoute() {
           </div>
           {result ? <StatusPill status={result.trustStatus} /> : null}
         </div>
-        <p className="safety-number">{mockPairingSnapshot.contact.safetyNumber}</p>
+        <p className="safety-number">
+          {verification?.safetyNumber ?? mockPairingSnapshot.contact.safetyNumber}
+        </p>
         <div className="hash-word-list">
-          {mockPairingSnapshot.contact.hashWords.map((word) => (
+          {(verification?.hashWords ?? mockPairingSnapshot.contact.hashWords).map((word) => (
             <span key={word}>{word}</span>
           ))}
         </div>
@@ -62,12 +100,17 @@ export function VerifyRoute() {
           </div>
           <div>
             <strong>Mark as verified</strong>
-            <p>Update trust only after both values match for {user?.email}.</p>
+            <p>
+              Update trust only after both values match for {user?.email}. Current session:
+              {" "}
+              {storedSession?.inviteCode ?? "none"}
+            </p>
           </div>
         </div>
-        <button className="primary-button" onClick={() => setConfirmed(true)}>
-          Mark verified
+        <button className="primary-button" onClick={handleConfirm} disabled={isSubmitting}>
+          {isSubmitting ? "Confirming..." : "Mark verified"}
         </button>
+        {errorMessage ? <p>{errorMessage}</p> : null}
       </article>
     </section>
   );

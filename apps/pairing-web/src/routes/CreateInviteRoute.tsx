@@ -1,20 +1,27 @@
 import { useEffect, useState } from "react";
-import { mockCreateInvite } from "@ghostscript/shared";
+import type { CreateInviteResponse } from "@ghostscript/shared";
 import { useAuth } from "../auth/AuthContext";
 import { AuthGate } from "../components/AuthGate";
+import {
+  buildDemoPublicKey,
+  buildPairingIdentity,
+  createInvite,
+} from "../lib/pairingApi";
+import { writeStoredPairingSession } from "../lib/pairingSession";
 
 export function CreateInviteRoute() {
   const { isAuthenticated, user } = useAuth();
   const [name, setName] = useState(user?.name ?? "Ghostscript User");
   const [hasEditedName, setHasEditedName] = useState(false);
+  const [invite, setInvite] = useState<CreateInviteResponse | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
     if (user?.name && !hasEditedName) {
       setName(user.name);
     }
   }, [hasEditedName, user?.name]);
-
-  const invite = mockCreateInvite({ inviterName: name });
 
   if (!isAuthenticated) {
     return (
@@ -35,6 +42,29 @@ export function CreateInviteRoute() {
       </AuthGate>
     );
   }
+
+  const handleCreateInvite = async () => {
+    try {
+      setIsSubmitting(true);
+      setErrorMessage(null);
+      const response = await createInvite({
+        inviterIdentity: buildPairingIdentity(user),
+        inviterName: name,
+        publicKey: buildDemoPublicKey(user, name),
+      });
+      setInvite(response);
+      writeStoredPairingSession({
+        inviteCode: response.session.inviteCode,
+        participant: response.inviter,
+        session: response.session,
+        verification: null,
+      });
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Unable to create invite.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   return (
     <section className="panel-grid single-column">
@@ -58,9 +88,24 @@ export function CreateInviteRoute() {
         </div>
         <div className="invite-card invite-card-featured">
           <p className="panel-label">Generated invite</p>
-          <strong className="invite-code">{invite.inviteCode}</strong>
-          <p>Expires {new Date(invite.expiresAt).toLocaleTimeString()}</p>
-          <code className="inline-code">{invite.inviteUrl}</code>
+          <strong className="invite-code">{invite?.session.inviteCode ?? "Ready"}</strong>
+          <p>
+            {invite
+              ? `Expires ${new Date(invite.session.expiresAt).toLocaleTimeString()}`
+              : "Create an invite to mint a short-lived code."}
+          </p>
+          <code className="inline-code">
+            {invite?.inviteUrl ?? "Waiting for invite creation"}
+          </code>
+          <button
+            className="primary-button"
+            type="button"
+            onClick={handleCreateInvite}
+            disabled={isSubmitting}
+          >
+            {isSubmitting ? "Creating..." : "Create invite"}
+          </button>
+          {errorMessage ? <p>{errorMessage}</p> : null}
         </div>
       </article>
 
