@@ -42,25 +42,16 @@ Then update:
 
 Do not use a Supabase `sb_publishable_...` key here. The pairing API writes directly to Supabase and needs the server-side privileged key.
 
-4. Run the pairing API:
+4. Run the full local stack:
 
 ```bash
-corepack pnpm dev:api
+corepack pnpm dev
 ```
 
-5. Run the pairing web app in a second terminal:
+This starts the pairing API, pairing web app, and extension watcher together in one terminal. If you ever want to run them separately, `dev:api`, `dev:web`, and `dev:extension` are still available.
+The script automatically picks open local ports starting from `5173` for the web app and `8787` for the API, then wires the extension to the same API URL.
 
-```bash
-corepack pnpm dev:web
-```
-
-6. Build the extension:
-
-```bash
-corepack pnpm --filter @ghostscript/extension build
-```
-
-7. Load the unpacked extension in Chrome:
+5. Load the unpacked extension in Chrome:
    - Open `chrome://extensions`
    - Enable Developer Mode
    - Click **Load unpacked**

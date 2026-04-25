@@ -4,6 +4,7 @@
   "private": true,
   "packageManager": "pnpm@10.12.1",
   "scripts": {
+    "dev": "./scripts/deploy.sh",
     "dev:web": "corepack pnpm --filter @ghostscript/pairing-web dev",
     "dev:api": "corepack pnpm --filter @ghostscript/pairing-api dev",
     "dev:extension": "corepack pnpm --filter @ghostscript/extension dev",

@@ -10,7 +10,10 @@ import type {
 const DEFAULT_PAIRING_API_BASE_URL = "http://localhost:8787";
 
 function getPairingApiBaseUrl() {
-  return DEFAULT_PAIRING_API_BASE_URL;
+  return (
+    import.meta.env.VITE_PAIRING_API_BASE_URL?.trim().replace(/\/$/, "") ??
+    DEFAULT_PAIRING_API_BASE_URL
+  );
 }
 
 export async function createInvite(request: CreateInviteRequest) {
@@ -32,13 +35,26 @@ export async function confirmInvite(inviteCode: string, request: ConfirmVerifica
 }
 
 async function requestJson<T>(path: string, body: unknown): Promise<T> {
-  const response = await fetch(`${getPairingApiBaseUrl()}${path}`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(body),
-  });
+  let response: Response;
+
+  try {
+    response = await fetch(`${getPairingApiBaseUrl()}${path}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+    });
+  } catch (error) {
+    if (error instanceof TypeError) {
+      throw new Error(
+        `Unable to reach the pairing API at ${getPairingApiBaseUrl()}. Confirm the local stack is running and reload the unpacked extension if its API URL changed.`,
+      );
+    }
+
+    throw error;
+  }
+
   const payload = (await response.json().catch(() => null)) as { error?: string } | null;
 
   if (!response.ok) {
