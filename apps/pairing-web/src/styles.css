@@ -576,6 +576,38 @@ p {
   font-size: 0.95rem;
 }
 
+.timeline-step-state {
+  display: inline-flex;
+  width: fit-content;
+  margin-bottom: 8px;
+  padding: 4px 8px;
+  border-radius: var(--radius-pill);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.timeline-step-complete::before {
+  background: var(--success);
+  box-shadow: 0 0 0 5px rgba(59, 165, 93, 0.12);
+}
+
+.timeline-step-complete .timeline-step-state {
+  background: rgba(59, 165, 93, 0.16);
+  color: var(--success);
+}
+
+.timeline-step-active .timeline-step-state {
+  background: rgba(88, 101, 242, 0.15);
+  color: var(--info);
+}
+
+.timeline-step-pending .timeline-step-state {
+  background: rgba(240, 178, 50, 0.14);
+  color: var(--warning);
+}
+
 .terminal-header,
 .detail-strip,
 .verify-header,
