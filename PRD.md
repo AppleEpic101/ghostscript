@@ -1,25 +1,25 @@
 # PRD for Ghostscript, Including Secure Images
 
 ## Summary
-`PRD.md` for **Ghostscript**, a **Chrome extension + lightweight pairing web app** that brings end-to-end encrypted messaging to **Discord web 1:1 DMs**. The PRD should optimize for **judge trust in security**: use **standard audited cryptography** for the real protection, and treat innocent-looking text or images as a **camouflage/transport layer**, not the security primitive.
+`PRD.md` for **Ghostscript**, a **Chrome extension + lightweight pairing web app** that brings end-to-end encrypted messaging to **Discord web direct messages and group chats (but not servers)**. The PRD should optimize for **judge trust in security**: use **standard audited cryptography** for the real protection, and treat innocent-looking text or images as a **camouflage/transport layer**, not the security primitive.
 
 The PRD should define:
-- **Core MVP**: secure text messages in Discord DMs
+- **Core MVP**: secure text messages in Discord direct messages and group chats
 - **High-priority stretch**: secure image sharing via benign-looking PNG attachments
 - **Pairing model**: both users install the extension and verify each other via **Safety Number / Hash Word comparison** (QR codes are excluded as the MVP is scoped to Desktop Chrome)
 - **Security language**: replace “military-style encryption” with “modern audited cryptography”
 
 ## Key Changes To Capture In The PRD
 ### Product definition
-- Position Ghostscript as a browser-extension privacy overlay for Discord DMs where paired users see real plaintext, while Discord and observers only see cover text or benign-looking image attachments.
+- Position Ghostscript as a browser-extension privacy overlay for Discord direct messages and group chats where paired users see real plaintext, while Discord and observers only see cover text or benign-looking image attachments.
 - Keep MVP scope to:
   - Discord web on desktop Chrome
-  - 1:1 DMs only
+  - Direct messages and group chats
   - Text messages
   - Manual secure pairing
 - Add image support as a **stretch feature after text MVP**, not equal-scope MVP.
 - Explicitly exclude for v1:
-  - Group chats
+  - Discord servers, server channels, and forum surfaces
   - Mobile
   - Multi-device sync
   - Perfect undetectability
@@ -66,15 +66,15 @@ The PRD should define:
     - context
     - speaking style
   - default AI cover-text preset must be `casual SMS bro tone over Discord`
-  - AI cover text must be **conversation-aware**: when possible, it should read the recent Discord DM thread and produce an innocent-sounding message that plausibly continues the visible topic, tone, and pacing of the conversation (for example, if the recent thread is about pizza, the generated cover text should look like a natural pizza-related follow-up rather than a random generic message)
+  - AI cover text must be **conversation-aware**: when possible, it should read the recent Discord direct-message or group-chat thread and produce an innocent-sounding message that plausibly continues the visible topic, tone, and pacing of the conversation (for example, if the recent thread is about pizza, the generated cover text should look like a natural pizza-related follow-up rather than a random generic message)
   - AI generation must operate on a **conversation context window** built from recent Discord messages already present in the web client, so the cover text matches the surrounding thread instead of sounding detached
   - the AI prompt context should be derived from the **recent visible and locally cached Discord conversation history**, not from remote pairing metadata or any server-side message relay
   - the extension must support three context sources, in priority order:
-    - a local rolling cache of previously observed messages for the active DM
+    - a local rolling cache of previously observed messages for the active conversation
     - messages currently mounted in the Discord page DOM
-    - additional older messages loaded on demand by controlled upward scrolling of the DM history pane
+    - additional older messages loaded on demand by controlled upward scrolling of the active direct-message or group-chat history pane
   - the extension must define a bounded history-loading policy for cover-text generation:
-    - first use the last locally cached messages for the DM if available
+    - first use the last locally cached messages for the active conversation if available
     - if insufficient context is cached, read the currently rendered Discord messages from the DOM
     - if the rendered DOM still does not provide enough context, progressively scroll upward to request older history from Discord until either the target context budget is reached or a configured safety/time limit is hit
   - the PRD must treat Discord history acquisition for AI as a **DOM-driven loading process**, not a dependency on undocumented Discord APIs
@@ -200,7 +200,7 @@ The PRD should define:
   - `context: string`
   - `speakingStyle: string`
   - `presetId?: string`
-  - default preset values should resolve to casual SMS bro tone suitable for Discord DMs
+  - default preset values should resolve to casual SMS bro tone suitable for Discord direct messages and group chats
 - Internal AI context types to define:
   - `ConversationContextWindow`
   - `ConversationContextSummary`
@@ -261,7 +261,9 @@ The PRD should define:
 - Verify invite codes are short-lived and rejected after expiration or reuse.
 - Verify Discord only receives cover text for secure text messages.
 - Verify both manual and AI-generated cover text flows successfully carry the same encrypted payload.
-- Verify users can set tone, context, and speaking style for AI cover text and that the default preset is casual SMS bro tone for Discord DMs.
+- Verify users can set tone, context, and speaking style for AI cover text and that the default preset is casual SMS bro tone for Discord direct messages and group chats.
+- Verify secure send/receive works in both 1:1 direct messages and Discord group chats.
+- Verify the extension does not activate on Discord servers, server channels, or forum threads.
 - Verify AI-generated cover text uses recent conversation context so that, when the visible thread is about a topic such as pizza, the generated innocent cover text remains plausibly about that topic.
 - Verify cover-text generation uses locally cached and/or visible DOM messages before attempting controlled history scrolling.
 - Verify controlled history scrolling stops at configured message/time limits and does not block send indefinitely when older context cannot be loaded.
