@@ -269,11 +269,6 @@ p {
   z-index: 30;
 }
 
-.auth-menu {
-  position: relative;
-  z-index: 30;
-}
-
 .icon-button {
   display: inline-flex;
   align-items: center;
@@ -319,78 +314,6 @@ p {
   display: none;
 }
 
-.auth-trigger {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-  max-width: min(320px, 42vw);
-  padding: 7px 10px 7px 8px;
-  border: 1px solid var(--border);
-  border-radius: 16px;
-  background: var(--bg-panel);
-  cursor: pointer;
-  transition:
-    border-color 160ms ease,
-    background 160ms ease,
-    transform 160ms ease;
-}
-
-.auth-trigger:hover {
-  transform: translateY(-1px);
-  border-color: var(--border-strong);
-  background: var(--bg-soft);
-}
-
-.auth-trigger-active {
-  box-shadow: var(--shadow-soft);
-}
-
-.auth-trigger-copy {
-  display: grid;
-  min-width: 0;
-  text-align: left;
-}
-
-.auth-trigger-copy strong,
-.auth-trigger-copy small {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.auth-trigger-copy small {
-  color: var(--text-muted);
-  font-size: 0.78rem;
-}
-
-.auth-avatar,
-.auth-profile-avatar {
-  flex: none;
-  border-radius: 50%;
-  object-fit: cover;
-}
-
-.auth-avatar {
-  width: 28px;
-  height: 28px;
-}
-
-.auth-profile-avatar {
-  width: 42px;
-  height: 42px;
-}
-
-.auth-avatar-fallback {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--accent-soft);
-  color: var(--accent-strong);
-  font-weight: 700;
-  text-transform: uppercase;
-}
-
 .theme-popover {
   position: absolute;
   top: calc(100% + 10px);
@@ -403,94 +326,6 @@ p {
   border-radius: 16px;
   background: var(--bg-panel);
   box-shadow: var(--shadow-panel);
-}
-
-.auth-popover {
-  position: absolute;
-  top: calc(100% + 10px);
-  right: 0;
-  width: min(320px, calc(100vw - 28px));
-}
-
-.auth-card {
-  display: grid;
-  gap: 16px;
-  padding: 18px;
-  border: 1px solid var(--border);
-  border-radius: 20px;
-  background: var(--bg-panel);
-  box-shadow: var(--shadow-panel);
-}
-
-.auth-card-copy,
-.auth-card-header,
-.auth-meta,
-.auth-status-copy,
-.auth-gate-copy,
-.auth-gate-actions,
-.auth-inline-copy {
-  display: grid;
-  gap: 8px;
-}
-
-.auth-card-copy p:not(.panel-label),
-.auth-inline-copy p:not(.panel-label),
-.auth-gate-copy p:not(.panel-label),
-.auth-status-copy p {
-  color: var(--text-secondary);
-  font-size: 0.94rem;
-}
-
-.auth-card-header {
-  grid-template-columns: auto minmax(0, 1fr);
-  align-items: center;
-}
-
-.auth-card-header p,
-.auth-meta {
-  color: var(--text-muted);
-  font-size: 0.84rem;
-}
-
-.auth-helper {
-  color: var(--text-secondary);
-  font-size: 0.9rem;
-}
-
-.google-signin-slot {
-  min-height: 44px;
-}
-
-.auth-status-note {
-  max-width: 360px;
-}
-
-.auth-inline-panel,
-.auth-gate-panel {
-  display: grid;
-  grid-template-columns: minmax(0, 1.2fr) auto;
-  gap: 20px;
-  align-items: center;
-}
-
-.secondary-button {
-  width: fit-content;
-  padding: 11px 16px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-pill);
-  background: var(--bg-soft);
-  color: var(--text-primary);
-  font-weight: 700;
-  cursor: pointer;
-  transition:
-    border-color 160ms ease,
-    transform 160ms ease,
-    background 160ms ease;
-}
-
-.secondary-button:hover {
-  transform: translateY(-1px);
-  border-color: var(--border-strong);
 }
 
 .theme-option {
@@ -849,6 +684,41 @@ p {
   word-break: break-all;
 }
 
+.invite-status-box {
+  display: grid;
+  gap: 10px;
+  margin-top: 18px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: var(--bg-soft);
+}
+
+.invite-status-box-waiting {
+  border-color: rgba(88, 101, 242, 0.24);
+  background: rgba(88, 101, 242, 0.08);
+}
+
+.invite-status-box-success {
+  border-color: rgba(59, 165, 93, 0.24);
+  background: rgba(59, 165, 93, 0.1);
+}
+
+.invite-status-box-warning {
+  border-color: rgba(240, 178, 50, 0.22);
+  background: rgba(240, 178, 50, 0.1);
+}
+
+.invite-status-title {
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.invite-status-meta {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
 .detail-strip {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
@@ -1002,8 +872,6 @@ p {
   .top-note,
   .panel-grid,
   .hero-panel,
-  .auth-inline-panel,
-  .auth-gate-panel,
   .split-panel,
   .detail-strip,
   .verification-checklist,
@@ -1054,15 +922,7 @@ p {
     height: 38px;
   }
 
-  .auth-trigger {
-    max-width: 190px;
-  }
-
   .theme-popover {
-    right: -6px;
-  }
-
-  .auth-popover {
     right: -6px;
   }
 }

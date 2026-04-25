@@ -5,6 +5,7 @@ import type {
   ConfirmVerificationResponse,
   CreateInviteRequest,
   CreateInviteResponse,
+  InviteSessionStatusResponse,
   JoinInviteRequest,
   JoinInviteResponse,
   PairingIdentity,
@@ -210,6 +211,23 @@ export class PairingService {
       inviter: mapParticipant(inviter),
       joiner: mapParticipant(joinerRow),
       verification: deriveVerificationState(inviter, joinerRow, updatedSession.verified_at),
+    };
+  }
+
+  async getInviteSessionStatus(inviteCode: string): Promise<InviteSessionStatusResponse> {
+    validateInviteCode(inviteCode);
+
+    const { session, inviter, joiner } = await this.getSessionBundleByInviteCode(inviteCode);
+    const verification =
+      inviter && joiner
+        ? deriveVerificationState(inviter, joiner, session.verified_at)
+        : null;
+
+    return {
+      session: mapSession(session),
+      inviter: inviter ? mapParticipant(inviter) : null,
+      joiner: joiner ? mapParticipant(joiner) : null,
+      verification,
     };
   }
 

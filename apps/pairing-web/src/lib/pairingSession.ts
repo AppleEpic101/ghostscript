@@ -9,6 +9,7 @@ import type {
 const PAIRING_SESSION_STORAGE_KEY = "ghostscript-active-pairing-session";
 const CREATE_INVITE_STORAGE_KEY = "ghostscript-create-invite-state";
 const JOIN_INVITE_STORAGE_KEY = "ghostscript-join-invite-state";
+const ANONYMOUS_SUBJECT_STORAGE_KEY = "ghostscript-anonymous-subject";
 
 export interface StoredPairingSession {
   inviteCode: string;
@@ -54,12 +55,24 @@ export function writeStoredJoinInviteState(state: StoredJoinInviteState) {
   writeStorageValue(JOIN_INVITE_STORAGE_KEY, state);
 }
 
-function readStorageValue<T>(key: string): T | null {
-  if (typeof window === "undefined") {
-    return null;
+export function getOrCreateAnonymousSubject(): string {
+  const existingSubject = readRawStorageValue(ANONYMOUS_SUBJECT_STORAGE_KEY);
+
+  if (existingSubject) {
+    return existingSubject;
   }
 
-  const rawValue = window.localStorage.getItem(key);
+  const nextSubject =
+    typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+      ? `anonymous-browser:${crypto.randomUUID()}`
+      : `anonymous-browser:${Date.now().toString(36)}`;
+
+  writeStorageValue(ANONYMOUS_SUBJECT_STORAGE_KEY, nextSubject);
+  return nextSubject;
+}
+
+function readStorageValue<T>(key: string): T | null {
+  const rawValue = readRawStorageValue(key);
 
   if (!rawValue) {
     return null;
@@ -70,6 +83,14 @@ function readStorageValue<T>(key: string): T | null {
   } catch {
     return null;
   }
+}
+
+function readRawStorageValue(key: string): string | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  return window.localStorage.getItem(key);
 }
 
 function writeStorageValue(key: string, value: unknown) {

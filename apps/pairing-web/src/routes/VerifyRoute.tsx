@@ -1,13 +1,10 @@
 import { useEffect, useState } from "react";
 import { mockPairingSnapshot } from "@ghostscript/shared";
-import { useAuth } from "../auth/AuthContext";
-import { AuthGate } from "../components/AuthGate";
 import { StatusPill } from "../components/StatusPill";
 import { confirmInvite } from "../lib/pairingApi";
 import { readStoredPairingSession, writeStoredPairingSession } from "../lib/pairingSession";
 
 export function VerifyRoute() {
-  const { isAuthenticated, user } = useAuth();
   const [storedSession, setStoredSession] = useState(readStoredPairingSession);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -15,26 +12,6 @@ export function VerifyRoute() {
   useEffect(() => {
     setStoredSession(readStoredPairingSession());
   }, []);
-
-  if (!isAuthenticated) {
-    return (
-      <AuthGate
-        title="Sign in to verify a contact."
-        description="Verification now records which Google account confirmed the safety number for this browser session."
-      >
-        <article className="panel detail-strip">
-          <div>
-            <p className="panel-label">Audit trail</p>
-            <p>The verification action stores the signed-in account email as the confirmer identity.</p>
-          </div>
-          <div>
-            <p className="panel-label">Trust update</p>
-            <p>Only after the values match should the contact move to verified.</p>
-          </div>
-        </article>
-      </AuthGate>
-    );
-  }
 
   const verification = storedSession?.verification;
   const result =
@@ -101,7 +78,7 @@ export function VerifyRoute() {
           <div>
             <strong>Mark as verified</strong>
             <p>
-              Update trust only after both values match for {user?.email}. Current session:
+              Update trust only after both values match for this browser session. Current session:
               {" "}
               {storedSession?.inviteCode ?? "none"}
             </p>

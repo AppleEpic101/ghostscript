@@ -1,8 +1,6 @@
 import { useEffect, useState } from "react";
 import { NavLink, Route, Routes, useLocation } from "react-router-dom";
 import { FEATURE_FLAGS } from "@ghostscript/shared";
-import { useAuth } from "./auth/AuthContext";
-import { GoogleSignInButton } from "./components/GoogleSignInButton";
 import { LandingRoute } from "./routes/LandingRoute";
 import { CreateInviteRoute } from "./routes/CreateInviteRoute";
 import { JoinInviteRoute } from "./routes/JoinInviteRoute";
@@ -10,7 +8,7 @@ import { VerifyRoute } from "./routes/VerifyRoute";
 
 type ThemePreference = "light" | "dark" | "system";
 type AppliedTheme = Exclude<ThemePreference, "system">;
-type HeaderDisclosure = "theme" | "auth" | "mobile-nav";
+type HeaderDisclosure = "theme" | "mobile-nav";
 
 const navItems = [
   { to: "/", label: "Overview" },
@@ -76,23 +74,7 @@ function ThemeIcon() {
   );
 }
 
-function UserIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path
-        d="M12 12.25a3.75 3.75 0 1 0 0-7.5 3.75 3.75 0 0 0 0 7.5Zm-6 7c.64-2.74 3.1-4.75 6-4.75s5.36 2.01 6 4.75"
-        fill="none"
-        stroke="currentColor"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth="1.7"
-      />
-    </svg>
-  );
-}
-
 export function App() {
-  const { errorMessage, isAuthenticated, signOut, status, user } = useAuth();
   const location = useLocation();
   const [themePreference, setThemePreference] = useState<ThemePreference>(getStoredThemePreference);
   const [systemTheme, setSystemTheme] = useState<AppliedTheme>(getSystemTheme);
@@ -100,7 +82,6 @@ export function App() {
 
   const appliedTheme = themePreference === "system" ? systemTheme : themePreference;
   const themeMenuOpen = openDisclosure === "theme";
-  const authMenuOpen = openDisclosure === "auth";
   const mobileNavOpen = openDisclosure === "mobile-nav";
 
   const toggleDisclosure = (disclosure: HeaderDisclosure) => {
@@ -232,93 +213,6 @@ export function App() {
               ) : null}
             </div>
 
-            <div className="auth-menu" data-header-disclosure>
-              <button
-                type="button"
-                className={isAuthenticated ? "auth-trigger auth-trigger-active" : "icon-button"}
-                aria-haspopup="dialog"
-                aria-expanded={authMenuOpen}
-                aria-label={isAuthenticated ? `Signed in as ${user?.email}` : "Open authentication"}
-                onClick={() => toggleDisclosure("auth")}
-              >
-                {isAuthenticated ? (
-                  <>
-                    {user?.picture ? (
-                      <img src={user.picture} alt="" className="auth-avatar" referrerPolicy="no-referrer" />
-                    ) : (
-                      <span className="auth-avatar auth-avatar-fallback" aria-hidden="true">
-                        {user?.name.slice(0, 1) ?? "G"}
-                      </span>
-                    )}
-                    <span className="auth-trigger-copy">
-                      <strong>{user?.givenName ?? user?.name}</strong>
-                      <small>{user?.email}</small>
-                    </span>
-                  </>
-                ) : (
-                  <UserIcon />
-                )}
-              </button>
-
-              {authMenuOpen ? (
-                <div className="auth-popover" role="dialog" aria-label="Authentication">
-                  {isAuthenticated && user ? (
-                    <div className="auth-card">
-                      <div className="auth-card-header">
-                        {user.picture ? (
-                          <img
-                            src={user.picture}
-                            alt=""
-                            className="auth-profile-avatar"
-                            referrerPolicy="no-referrer"
-                          />
-                        ) : (
-                          <span className="auth-profile-avatar auth-avatar-fallback" aria-hidden="true">
-                            {user.name.slice(0, 1)}
-                          </span>
-                        )}
-                        <div>
-                          <strong>{user.name}</strong>
-                          <p>{user.email}</p>
-                        </div>
-                      </div>
-
-                      <div className="auth-meta">
-                        <span>{user.emailVerified ? "Google account verified" : "Email not verified"}</span>
-                        <span>Session active until {new Date(user.expiresAt).toLocaleTimeString()}</span>
-                      </div>
-
-                      <button
-                        type="button"
-                        className="secondary-button"
-                        onClick={() => {
-                          signOut();
-                          setOpenDisclosure(null);
-                        }}
-                      >
-                        Sign out
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="auth-card">
-                      <div className="auth-card-copy">
-                        <p className="panel-label">Sign in</p>
-                        <strong>Continue with Google</strong>
-                        <p>
-                          Use a Gmail or Google Workspace account to unlock invite creation,
-                          joining, and verification in this demo.
-                        </p>
-                      </div>
-                      <GoogleSignInButton />
-                      {status === "error" && errorMessage ? (
-                        <p className="auth-helper">{errorMessage}</p>
-                      ) : null}
-                    </div>
-                  )}
-                </div>
-              ) : null}
-            </div>
-
             <button
               type="button"
               className="icon-button nav-toggle"
@@ -358,20 +252,17 @@ export function App() {
           <div>
             <p className="eyebrow">Pairing flow</p>
             <p className="lede">
-              Invite exchange, identity binding, and safety-number verification stay
+              Invite exchange, local identity binding, and safety-number verification stay
               visible here. Transport and decryption remain in the extension.
             </p>
           </div>
-          <div className="surface-note auth-status-note">
-            <p className="panel-label">Account</p>
-            <div className="auth-status-copy">
-              <strong>{isAuthenticated ? user?.email : "Sign in required"}</strong>
-              <p>
-                {isAuthenticated
-                  ? "Pairing actions are unlocked for this browser session."
-                  : "Use Google sign-in to create invites, join a session, and verify a contact."}
-              </p>
-            </div>
+          <div className="surface-note">
+            <p className="panel-label">Availability</p>
+            <strong>Ready from this browser</strong>
+            <p className="lede">
+              Create invites, join sessions, and confirm safety numbers without a separate
+              sign-in step.
+            </p>
           </div>
         </div>
 

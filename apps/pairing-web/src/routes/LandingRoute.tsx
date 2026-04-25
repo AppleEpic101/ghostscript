@@ -1,10 +1,7 @@
-import { useAuth } from "../auth/AuthContext";
-import { GoogleSignInButton } from "../components/GoogleSignInButton";
 import { mockPairingSnapshot } from "@ghostscript/shared";
 import { StatusPill } from "../components/StatusPill";
 
 export function LandingRoute() {
-  const { isAuthenticated, user } = useAuth();
   const { identity, contact, conversation, sampleMessage } = mockPairingSnapshot;
 
   return (
@@ -14,14 +11,14 @@ export function LandingRoute() {
           <p className="panel-label">Overview</p>
           <h2>Pair a contact, verify the safety number, then unlock trusted decryption.</h2>
           <p>
-            This flow covers invite creation, identity binding, and safety-number
+            This flow covers invite creation, local identity binding, and safety-number
             verification before the extension treats a conversation as trusted.
           </p>
         </div>
         <div className="hero-aside">
           <div className="hero-stat">
-            <span>Signed in</span>
-            <strong>{isAuthenticated ? user?.email : "Not yet connected"}</strong>
+            <span>Pairing mode</span>
+            <strong>Anonymous local browser</strong>
           </div>
           <div className="hero-stat">
             <span>Protocol</span>
@@ -37,20 +34,6 @@ export function LandingRoute() {
           </div>
         </div>
       </article>
-
-      {!isAuthenticated ? (
-        <article className="panel auth-inline-panel">
-          <div className="auth-inline-copy">
-            <p className="panel-label">Before you pair</p>
-            <h3>Sign in with Google to bind the browser to an email identity.</h3>
-            <p>
-              This demo uses your Google account profile to personalize the pairing flow and
-              gate invite actions to an authenticated browser session.
-            </p>
-          </div>
-          <GoogleSignInButton />
-        </article>
-      ) : null}
 
       <section className="panel-grid">
         <article className="panel dossier-panel">
@@ -103,8 +86,8 @@ export function LandingRoute() {
             <p>Create a short-lived code for the recipient.</p>
           </div>
           <div className="timeline-step">
-            <strong>2. Bind identity</strong>
-            <p>Attach a browser session and create the local contact record.</p>
+            <strong>2. Bind local identity</strong>
+            <p>Attach this browser session and create the local contact record.</p>
           </div>
           <div className="timeline-step">
             <strong>3. Verify safety number</strong>

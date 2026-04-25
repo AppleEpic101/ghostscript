@@ -149,6 +149,13 @@ export interface JoinInviteResponse {
   verification: VerificationState;
 }
 
+export interface InviteSessionStatusResponse {
+  session: PairingSession;
+  inviter: PairingParticipant | null;
+  joiner: PairingParticipant | null;
+  verification: VerificationState | null;
+}
+
 export interface ConfirmVerificationRequest {
   participantId: string;
 }

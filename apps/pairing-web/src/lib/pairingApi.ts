@@ -3,12 +3,12 @@ import type {
   ConfirmVerificationResponse,
   CreateInviteRequest,
   CreateInviteResponse,
+  InviteSessionStatusResponse,
   JoinInviteRequest,
   JoinInviteResponse,
   PairingIdentity,
   PublicKeyBundle,
 } from "@ghostscript/shared";
-import type { AuthUser } from "../auth/googleIdentity";
 
 const DEFAULT_PAIRING_API_BASE_URL = "http://localhost:8787";
 
@@ -21,6 +21,16 @@ function getPairingApiBaseUrl() {
 
 export async function createInvite(request: CreateInviteRequest): Promise<CreateInviteResponse> {
   return requestJson<CreateInviteResponse>("/pairing/invites", request);
+}
+
+export async function getInviteSessionStatus(
+  inviteCode: string,
+): Promise<InviteSessionStatusResponse> {
+  return requestJson<InviteSessionStatusResponse>(
+    `/pairing/invites/${encodeURIComponent(inviteCode)}`,
+    undefined,
+    "GET",
+  );
 }
 
 export async function joinInvite(
@@ -43,25 +53,16 @@ export async function confirmInvite(
   );
 }
 
-export function buildPairingIdentity(user: AuthUser | null): PairingIdentity {
-  if (!user) {
-    return {
-      provider: "anonymous",
-      subject: "anonymous-browser",
-    };
-  }
-
+export function buildPairingIdentity(subject: string): PairingIdentity {
   return {
-    provider: "google",
-    subject: user.subject,
-    email: user.email,
-    emailVerified: user.emailVerified,
+    provider: "anonymous",
+    subject,
   };
 }
 
-export function buildDemoPublicKey(user: AuthUser | null, displayName: string): PublicKeyBundle {
+export function buildDemoPublicKey(subject: string, displayName: string): PublicKeyBundle {
   const now = new Date().toISOString();
-  const seed = user ? `${user.subject}:${user.email}` : `guest:${displayName}`;
+  const seed = `${subject}:${displayName}`;
   const publicKey = textToHex(seed.padEnd(32, "_")).slice(0, 64);
   const fingerprint = publicKey
     .slice(0, 16)
@@ -78,16 +79,19 @@ export function buildDemoPublicKey(user: AuthUser | null, displayName: string): 
   };
 }
 
-async function requestJson<T>(path: string, body: unknown): Promise<T> {
+async function requestJson<T>(path: string, body?: unknown, method = "POST"): Promise<T> {
   let response: Response;
 
   try {
     response = await fetch(`${getPairingApiBaseUrl()}${path}`, {
-      body: JSON.stringify(body),
-      headers: {
-        "Content-Type": "application/json",
-      },
-      method: "POST",
+      body: body === undefined ? undefined : JSON.stringify(body),
+      headers:
+        body === undefined
+          ? undefined
+          : {
+              "Content-Type": "application/json",
+            },
+      method,
     });
   } catch (error) {
     if (error instanceof TypeError) {

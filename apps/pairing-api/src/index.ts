@@ -61,6 +61,14 @@ const server = createServer(async (request, response) => {
       return;
     }
 
+    const inviteStatusMatch = pathname.match(/^\/pairing\/invites\/([^/]+)$/);
+    if (request.method === "GET" && inviteStatusMatch) {
+      const inviteCode = decodeURIComponent(inviteStatusMatch[1] ?? "");
+      const result = await pairingService.getInviteSessionStatus(inviteCode);
+      sendJson(response, 200, result);
+      return;
+    }
+
     const joinMatch = pathname.match(/^\/pairing\/invites\/([^/]+)\/join$/);
     if (request.method === "POST" && joinMatch) {
       const inviteCode = decodeURIComponent(joinMatch[1] ?? "");
