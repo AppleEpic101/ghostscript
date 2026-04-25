@@ -1,7 +1,7 @@
 # PRD for Ghostscript, Including Secure Images
 
 ## Summary
-`PRD.md` for **Ghostscript**, a **Chrome extension + lightweight pairing web app** that brings end-to-end encrypted messaging to **Discord web direct messages and group chats (but not servers)**. The PRD should optimize for **judge trust in security**: use **standard audited cryptography** for the real protection, and treat innocent-looking text or images as a **camouflage/transport layer**, not the security primitive.
+`PRD.md` for **Ghostscript**, a **Chrome extension + lightweight companion pairing web app** that brings end-to-end encrypted messaging to **Discord web direct messages and group chats (but not servers)**. The PRD should optimize for **judge trust in security**: use **standard audited cryptography** for the real protection, and treat innocent-looking text or images as a **camouflage/transport layer**, not the security primitive.
 
 The PRD should define:
 - **Core MVP**: secure text messages in Discord direct messages and group chats
@@ -12,6 +12,8 @@ The PRD should define:
 ## Key Changes To Capture In The PRD
 ### Product definition
 - Position Ghostscript as a browser-extension privacy overlay for Discord direct messages and group chats where paired users see real plaintext, while Discord and observers only see cover text or benign-looking image attachments.
+- Define the extension as the **system of record** for local identity keys, pairing state, trust state, and per-conversation cryptographic state.
+- Define the companion web app as a convenience surface for pairing UX, not the authoritative holder of secure state.
 - Keep MVP scope to:
   - Discord web on desktop Chrome
   - Direct messages and group chats
@@ -43,6 +45,10 @@ The PRD should define:
   - public keys
   - pairing invite/session state
   - encrypted metadata if needed
+- Allow participant identities to be either:
+  - extension-scoped anonymous identities derived from locally generated key material
+  - optional account-linked identities used for display, continuity, or abuse controls in future iterations
+- State clearly that account auth is **not required for MVP security** because trust is established by local key ownership plus manual Safety Number / Hash Word verification.
 - Require the backend to never store:
   - plaintext messages
   - plaintext images
@@ -170,7 +176,7 @@ The PRD should define:
   - reversible semantic remapping of one photo into another
 
 ### Pairing web app
-- Define the web app as a **key exchange and verification service**, not a message relay.
+- Define the web app as a **companion pairing surface** for key exchange and verification, not a message relay and not the authority for secure local state.
 - Required flows:
   - create invite code
   - join invite by entering the invite code inside Ghostscript
@@ -183,10 +189,35 @@ The PRD should define:
   - the joiner opens Ghostscript and manually enters that code
   - both must verify the safety code before decryption is marked trusted
 - Require short-lived pairing sessions and TLS.
+- Do not require Google authentication or any third-party account provider for MVP pairing.
+- If an account-backed identity is offered in the web app, define it as optional product UX rather than a cryptographic trust anchor unless the backend later verifies provider-issued tokens server-side.
+
+### Extension-Web State Persistence
+- Require the extension to be the **single source of truth** for:
+  - local identity key material
+  - active pairing session state
+  - paired contacts
+  - trust status
+  - per-conversation counters and cryptographic metadata
+- Allow the web app to keep only **ephemeral convenience state** such as partially completed forms, last viewed invite code, or non-authoritative UI cache.
+- The web app must not be treated as the durable authority for pairing or trust state through its own `localStorage`.
+- Define extension-to-web coordination as a narrow bridge:
+  - the web UI requests a current pairing snapshot from the extension
+  - create/join/confirm actions initiated from the web UI are executed by the extension or handed off to the extension for persistence
+  - the extension then updates its local durable store after successful API responses
+- Preferred bridge model for Chrome MVP:
+  - use extension messaging between the web app and extension background/runtime
+  - expose only the minimum commands needed for pairing and read-only session snapshots
+- Explicitly avoid relying on shared browser storage between the extension origin and web-app origin as a synchronization mechanism, because it creates split-brain state and inconsistent trust decisions.
+- Define the persistence model so that:
+  - reloading the web app must rehydrate from the extension when available
+  - reloading the extension must preserve authoritative state from extension storage
+  - secure operations remain possible even if the companion web app is closed
 
 ## Public Interfaces And Types To Define In The PRD
 - Extension/local types:
   - `IdentityKey`
+  - `ActivePairingState`
   - `PairedContact`
   - `ConversationState`
   - `TrustStatus`
@@ -194,6 +225,10 @@ The PRD should define:
   - `StegoCodec`
   - `EncodedGhostscriptMessage`
   - `StegoImageEnvelope`
+- Extension-web bridge types to define:
+  - `PairingSnapshot`
+  - `ExtensionBridgeRequest`
+  - `ExtensionBridgeResponse`
 - `CoverTextStyle` definition:
   - `mode: 'manual' | 'ai-generated'`
   - `tone: string`
@@ -232,6 +267,24 @@ The PRD should define:
   - `decode(text: string): Uint8Array`
   - Base-16 alphabet backed by `16` specific non-printing Unicode characters (U+200B, U+200C, U+200D, U+2060, U+2061, U+2062, U+2063, U+2064, U+206A, U+206B, U+206C, U+206D, U+206E, U+206F, U+FEFF, and U+FFA0) appended to cover text.
   - deterministic codec metadata sufficient to validate message framing and version compatibility
+- `ActivePairingState` should capture:
+  - invite code
+  - current pairing session
+  - local participant
+  - counterpart participant if known
+  - verification state
+- `PairingSnapshot` should capture:
+  - current active pairing state if any
+  - trusted contacts summary
+  - local identity fingerprint
+  - current vault/trust state needed by the companion web UI
+- `ExtensionBridgeRequest` should capture:
+  - `type: 'get-pairing-snapshot' | 'create-invite' | 'join-invite' | 'confirm-invite'`
+  - payload required for the selected action
+- `ExtensionBridgeResponse` should capture:
+  - success/failure status
+  - latest authoritative pairing snapshot when relevant
+  - user-displayable error message when the action fails
 - Text envelope fields via `MessageEnvelope`:
   - `v` for protocol version
   - `sender_id` (a truncated Ed25519 fingerprint so the receiving extension knows which public key to use for decryption)
@@ -259,6 +312,10 @@ The PRD should define:
 - Pair two fresh users and confirm matching conversation secrets only after verification.
 - Verify pairing succeeds when the joiner manually enters a valid invite code inside Ghostscript.
 - Verify invite codes are short-lived and rejected after expiration or reuse.
+- Verify secure pairing can be completed entirely from the extension without any third-party account sign-in.
+- Verify the companion web app rehydrates its displayed pairing state from the extension rather than treating web `localStorage` as authoritative.
+- Verify create/join/confirm actions initiated from the web app are persisted into extension storage and survive web-app reloads.
+- Verify closing the web app does not affect secure send/receive once extension state is established.
 - Verify Discord only receives cover text for secure text messages.
 - Verify both manual and AI-generated cover text flows successfully carry the same encrypted payload.
 - Verify users can set tone, context, and speaking style for AI cover text and that the default preset is casual SMS bro tone for Discord direct messages and group chats.
@@ -287,6 +344,7 @@ The PRD should define:
 - Text is the core MVP.
 - Secure-image stego is a flagship **stretch feature** after text works reliably.
 - The recommended browser crypto implementation for the extension is `libsodium.js`/WASM for XChaCha20-Poly1305 and Argon2id, while standard browser APIs can still be used where appropriate.
+- For MVP, anonymous extension-scoped identities are sufficient for secure pairing; optional account auth may improve UX later but is not part of the cryptographic trust model by default.
 - AI-generated cover text is a convenience layer for message camouflage and tone-matching, not part of the cryptographic trust model or decoding contract.
 - For MVP, Discord conversation context used for AI cover-text generation is obtained from a combination of local cache, rendered page DOM, and bounded controlled scrolling; it is not assumed that the extension has reliable access to arbitrary historical messages that are not currently loaded in the page.
 - For MVP, Discord network traffic interception is explicitly non-required; the extension is expected to function using page-level integration rather than privileged packet inspection.
