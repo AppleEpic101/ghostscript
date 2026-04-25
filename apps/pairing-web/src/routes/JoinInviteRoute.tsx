@@ -8,12 +8,13 @@ export function JoinInviteRoute() {
   const { isAuthenticated, user } = useAuth();
   const [inviteCode, setInviteCode] = useState("GHOST-4827");
   const [joinerName, setJoinerName] = useState(user?.name ?? "");
+  const [hasEditedJoinerName, setHasEditedJoinerName] = useState(false);
 
   useEffect(() => {
-    if (user?.name && !joinerName) {
+    if (user?.name && !hasEditedJoinerName) {
       setJoinerName(user.name);
     }
-  }, [joinerName, user?.name]);
+  }, [hasEditedJoinerName, user?.name]);
 
   const response = mockJoinInvite({ inviteCode, joinerName });
 
@@ -62,7 +63,13 @@ export function JoinInviteRoute() {
           </label>
           <label className="field">
             <span>Display name</span>
-            <input value={joinerName} onChange={(event) => setJoinerName(event.target.value)} />
+            <input
+              value={joinerName}
+              onChange={(event) => {
+                setHasEditedJoinerName(true);
+                setJoinerName(event.target.value);
+              }}
+            />
           </label>
         </div>
         <div className="invite-card">

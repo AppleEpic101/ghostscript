@@ -6,14 +6,13 @@ import { AuthGate } from "../components/AuthGate";
 export function CreateInviteRoute() {
   const { isAuthenticated, user } = useAuth();
   const [name, setName] = useState(user?.name ?? "Ghostscript User");
+  const [hasEditedName, setHasEditedName] = useState(false);
 
   useEffect(() => {
-    if (user?.name) {
-      setName((currentName) =>
-        currentName === "Ghostscript User" || currentName.length === 0 ? user.name : currentName,
-      );
+    if (user?.name && !hasEditedName) {
+      setName(user.name);
     }
-  }, [user?.name]);
+  }, [hasEditedName, user?.name]);
 
   const invite = mockCreateInvite({ inviterName: name });
 
@@ -48,7 +47,13 @@ export function CreateInviteRoute() {
           </p>
           <label className="field">
             <span>Inviter display name</span>
-            <input value={name} onChange={(event) => setName(event.target.value)} />
+            <input
+              value={name}
+              onChange={(event) => {
+                setHasEditedName(true);
+                setName(event.target.value);
+              }}
+            />
           </label>
         </div>
         <div className="invite-card invite-card-featured">
