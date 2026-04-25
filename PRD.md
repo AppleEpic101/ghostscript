@@ -66,6 +66,55 @@ The PRD should define:
     - context
     - speaking style
   - default AI cover-text preset must be `casual SMS bro tone over Discord`
+  - AI cover text must be **conversation-aware**: when possible, it should read the recent Discord DM thread and produce an innocent-sounding message that plausibly continues the visible topic, tone, and pacing of the conversation (for example, if the recent thread is about pizza, the generated cover text should look like a natural pizza-related follow-up rather than a random generic message)
+  - AI generation must operate on a **conversation context window** built from recent Discord messages already present in the web client, so the cover text matches the surrounding thread instead of sounding detached
+  - the AI prompt context should be derived from the **recent visible and locally cached Discord conversation history**, not from remote pairing metadata or any server-side message relay
+  - the extension must support three context sources, in priority order:
+    - a local rolling cache of previously observed messages for the active DM
+    - messages currently mounted in the Discord page DOM
+    - additional older messages loaded on demand by controlled upward scrolling of the DM history pane
+  - the extension must define a bounded history-loading policy for cover-text generation:
+    - first use the last locally cached messages for the DM if available
+    - if insufficient context is cached, read the currently rendered Discord messages from the DOM
+    - if the rendered DOM still does not provide enough context, progressively scroll upward to request older history from Discord until either the target context budget is reached or a configured safety/time limit is hit
+  - the PRD must treat Discord history acquisition for AI as a **DOM-driven loading process**, not a dependency on undocumented Discord APIs
+  - the extension must not require direct interception of Discord websocket frames, fetch/XHR bodies, or private internal stores in order to generate contextual cover text for MVP
+  - network-level interception of Discord traffic may be explored later as a research or optimization path, but it is explicitly out of scope for MVP and must not be a dependency for core message send/receive behavior
+  - because Discord virtualizes message lists, the extension must assume that **off-screen messages are not immediately available** until they have either been cached locally or loaded into the DOM through user navigation or controlled scrolling
+  - the extension must set concrete upper bounds for AI context gathering so the feature remains predictable:
+    - maximum number of raw messages to inspect for cover-text generation
+    - maximum number of scroll attempts or total history-loading time
+    - maximum prompt token budget after summarization
+  - if older history cannot be loaded within those bounds, AI generation must continue with the best available recent context rather than blocking secure send
+  - before invoking AI, the extension should normalize the context window into a compact local summary that captures:
+    - the recent topic of conversation
+    - the conversational tone and speaking style
+    - short-term entities or references under discussion
+    - whether the conversation is active, paused, joking, argumentative, logistical, etc.
+  - AI must generate **cover text only**; it must never be responsible for encryption, decryption, payload framing, steganographic encoding, or plaintext recovery
+  - the hidden encrypted payload must remain authoritative even if the generated cover text is irrelevant, low quality, or semantically inconsistent
+  - the AI prompt must prefer using recent cover conversation context over the secure plaintext itself; the secure plaintext should not be required as model input in order to produce a plausible innocent message
+  - if product design later chooses to incorporate limited plaintext hints into prompt construction, that choice must be explicitly user-controlled, privacy-reviewed, and documented as a higher-risk mode rather than the default
+  - the extension must sanitize and minimize any context sent to an external model endpoint:
+    - strip Discord UI artifacts, timestamps, and non-message chrome
+    - bound the message window
+    - remove or mask obviously sensitive identifiers when feasible
+    - avoid sending decrypted historical Ghostscript plaintext unless the user explicitly opts into a higher-context mode
+  - the preferred privacy posture is:
+    - local generation when practical
+    - otherwise a privacy-reviewed API path with clear user disclosure
+    - no server-side storage of raw conversation context beyond transient processing required to answer the generation request
+  - the system prompt/contract for AI cover-text generation must require that generated text:
+    - sounds innocent and plausible in context
+    - does not mention encryption, secrecy, hidden messages, codes, or pairing
+    - does not copy prior messages too literally
+    - does not include suspicious unicode, markup, or formatting outside the steganographic suffix added by the extension
+    - stays within a configurable natural-language length budget so the combined cover text plus hidden suffix remains inside Discord’s `2,000-character` cap
+  - the AI output should be validated locally before insertion:
+    - reject empty or obviously malformed outputs
+    - reject outputs that contain banned terms related to secrecy or cryptography
+    - reject outputs whose length leaves insufficient room for the hidden payload
+    - retry once with a stricter prompt or fall back to deterministic/manual cover text if validation fails
   - extension compresses plaintext with `zlib/deflate` via `fflate` whenever the plaintext payload exceeds `64 bytes`
   - extension encrypts locally
   - encrypted bytes are encoded with a Base-16 steganographic alphabet using an exact array of safe, non-printing Unicode characters (U+200B, U+200C, U+200D, U+2060, U+2061, U+2062, U+2063, U+2064, U+206A, U+206B, U+206C, U+206D, U+206E, U+206F, U+FEFF, and U+FFA0) which are appended to the generated Cover Text, yielding 4 bits per character and a 1:2 byte-to-character expansion ratio suitable for Discord’s `2,000-character` cap
@@ -152,6 +201,32 @@ The PRD should define:
   - `speakingStyle: string`
   - `presetId?: string`
   - default preset values should resolve to casual SMS bro tone suitable for Discord DMs
+- Internal AI context types to define:
+  - `ConversationContextWindow`
+  - `ConversationContextSummary`
+  - `CoverTextGenerationRequest`
+  - `CoverTextGenerationResult`
+- `ConversationContextWindow` should capture:
+  - conversation id
+  - source breakdown (`cache`, `visible-dom`, `history-scroll`)
+  - ordered recent messages with sender role, text, and local timestamps if available
+  - whether the history window is partial because scroll/time limits were reached
+- `ConversationContextSummary` should capture:
+  - dominant topic
+  - current subtopic
+  - tone/mood
+  - stylistic cues
+  - salient entities/keywords safe to reuse in cover text
+- `CoverTextGenerationRequest` should capture:
+  - selected `CoverTextStyle`
+  - bounded `ConversationContextSummary`
+  - target character budget
+  - whether generation is local or remote
+- `CoverTextGenerationResult` should capture:
+  - generated cover text
+  - validation status
+  - fallback reason if rejected
+  - metadata indicating which context sources were used
 - `StegoCodec` module definition:
   - `encode(bytes: Uint8Array): string`
   - `decode(text: string): Uint8Array`
@@ -187,6 +262,13 @@ The PRD should define:
 - Verify Discord only receives cover text for secure text messages.
 - Verify both manual and AI-generated cover text flows successfully carry the same encrypted payload.
 - Verify users can set tone, context, and speaking style for AI cover text and that the default preset is casual SMS bro tone for Discord DMs.
+- Verify AI-generated cover text uses recent conversation context so that, when the visible thread is about a topic such as pizza, the generated innocent cover text remains plausibly about that topic.
+- Verify cover-text generation uses locally cached and/or visible DOM messages before attempting controlled history scrolling.
+- Verify controlled history scrolling stops at configured message/time limits and does not block send indefinitely when older context cannot be loaded.
+- Verify the system behaves correctly when the relevant prior conversation is off-screen and not yet loaded: the extension should either load bounded additional history or generate from partial context with an explicit fallback path.
+- Verify MVP behavior does not depend on Discord websocket interception or undocumented internal client stores.
+- Verify external AI requests, if enabled, receive only minimized conversation context and do not include unnecessary decrypted Ghostscript plaintext by default.
+- Verify the local validator rejects suspicious AI outputs that mention secrecy, encryption, hidden messages, or produce malformed/oversized cover text.
 - Verify plaintext text never appears in Discord’s native composer or readable page DOM in the secure flow.
 - Send valid Ghostscript text and confirm successful local decode/decrypt.
 - Tamper with any message field and verify integrity failure.
@@ -204,4 +286,6 @@ The PRD should define:
 - Secure-image stego is a flagship **stretch feature** after text works reliably.
 - The recommended browser crypto implementation for the extension is `libsodium.js`/WASM for XChaCha20-Poly1305 and Argon2id, while standard browser APIs can still be used where appropriate.
 - AI-generated cover text is a convenience layer for message camouflage and tone-matching, not part of the cryptographic trust model or decoding contract.
+- For MVP, Discord conversation context used for AI cover-text generation is obtained from a combination of local cache, rendered page DOM, and bounded controlled scrolling; it is not assumed that the extension has reliable access to arbitrary historical messages that are not currently loaded in the page.
+- For MVP, Discord network traffic interception is explicitly non-required; the extension is expected to function using page-level integration rather than privileged packet inspection.
 - The PRD should explicitly say Ghostscript provides **confidentiality and tamper resistance**, not invisibility against all steganalysis or protection against compromised endpoints.
