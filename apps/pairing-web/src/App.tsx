@@ -10,6 +10,7 @@ import { VerifyRoute } from "./routes/VerifyRoute";
 
 type ThemePreference = "light" | "dark" | "system";
 type AppliedTheme = Exclude<ThemePreference, "system">;
+type HeaderDisclosure = "theme" | "auth" | "mobile-nav";
 
 const navItems = [
   { to: "/", label: "Overview" },
@@ -95,11 +96,18 @@ export function App() {
   const location = useLocation();
   const [themePreference, setThemePreference] = useState<ThemePreference>(getStoredThemePreference);
   const [systemTheme, setSystemTheme] = useState<AppliedTheme>(getSystemTheme);
-  const [mobileNavOpen, setMobileNavOpen] = useState(false);
-  const [themeMenuOpen, setThemeMenuOpen] = useState(false);
-  const [authMenuOpen, setAuthMenuOpen] = useState(false);
+  const [openDisclosure, setOpenDisclosure] = useState<HeaderDisclosure | null>(null);
 
   const appliedTheme = themePreference === "system" ? systemTheme : themePreference;
+  const themeMenuOpen = openDisclosure === "theme";
+  const authMenuOpen = openDisclosure === "auth";
+  const mobileNavOpen = openDisclosure === "mobile-nav";
+
+  const toggleDisclosure = (disclosure: HeaderDisclosure) => {
+    setOpenDisclosure((currentDisclosure) =>
+      currentDisclosure === disclosure ? null : disclosure,
+    );
+  };
 
   useEffect(() => {
     const mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
@@ -125,10 +133,34 @@ export function App() {
   }, [appliedTheme]);
 
   useEffect(() => {
-    setMobileNavOpen(false);
-    setThemeMenuOpen(false);
-    setAuthMenuOpen(false);
+    setOpenDisclosure(null);
   }, [location.pathname]);
+
+  useEffect(() => {
+    if (!openDisclosure) {
+      return;
+    }
+
+    const closeDisclosureOnOutsideClick = (event: PointerEvent) => {
+      const target = event.target;
+
+      if (!(target instanceof Element)) {
+        return;
+      }
+
+      if (target.closest("[data-header-disclosure]")) {
+        return;
+      }
+
+      setOpenDisclosure(null);
+    };
+
+    document.addEventListener("pointerdown", closeDisclosureOnOutsideClick);
+
+    return () => {
+      document.removeEventListener("pointerdown", closeDisclosureOnOutsideClick);
+    };
+  }, [openDisclosure]);
 
   return (
     <div className="shell" data-theme={appliedTheme}>
@@ -139,8 +171,9 @@ export function App() {
       <header className="app-header">
         <div className="header-bar">
           <div className="brand-lockup brand-lockup-compact">
-            <p className="eyebrow">Ghostscript</p>
+            <img src="/logo-mark.png" alt="" className="brand-mark" />
             <div>
+              <p className="eyebrow">Ghostscript</p>
               <strong className="brand-title">Pairing web</strong>
               <p className="brand-subtitle">Trusted Discord conversations</p>
             </div>
@@ -160,14 +193,14 @@ export function App() {
           </nav>
 
           <div className="header-actions">
-            <div className="theme-menu">
+            <div className="theme-menu" data-header-disclosure>
               <button
                 type="button"
                 className="icon-button"
                 aria-haspopup="menu"
                 aria-expanded={themeMenuOpen}
                 aria-label={`Theme: ${themePreference}`}
-                onClick={() => setThemeMenuOpen((open) => !open)}
+                onClick={() => toggleDisclosure("theme")}
               >
                 <ThemeIcon />
               </button>
@@ -186,7 +219,7 @@ export function App() {
                       }
                       onClick={() => {
                         setThemePreference(themeOption);
-                        setThemeMenuOpen(false);
+                        setOpenDisclosure(null);
                       }}
                     >
                       <span>{themeOption}</span>
@@ -199,14 +232,14 @@ export function App() {
               ) : null}
             </div>
 
-            <div className="auth-menu">
+            <div className="auth-menu" data-header-disclosure>
               <button
                 type="button"
                 className={isAuthenticated ? "auth-trigger auth-trigger-active" : "icon-button"}
                 aria-haspopup="dialog"
                 aria-expanded={authMenuOpen}
                 aria-label={isAuthenticated ? `Signed in as ${user?.email}` : "Open authentication"}
-                onClick={() => setAuthMenuOpen((open) => !open)}
+                onClick={() => toggleDisclosure("auth")}
               >
                 {isAuthenticated ? (
                   <>
@@ -260,7 +293,7 @@ export function App() {
                         className="secondary-button"
                         onClick={() => {
                           signOut();
-                          setAuthMenuOpen(false);
+                          setOpenDisclosure(null);
                         }}
                       >
                         Sign out
@@ -289,10 +322,11 @@ export function App() {
             <button
               type="button"
               className="icon-button nav-toggle"
+              data-header-disclosure
               aria-expanded={mobileNavOpen}
               aria-controls="mobile-nav"
               aria-label="Toggle navigation"
-              onClick={() => setMobileNavOpen((open) => !open)}
+              onClick={() => toggleDisclosure("mobile-nav")}
             >
               <MenuIcon />
             </button>
@@ -302,6 +336,7 @@ export function App() {
         <div
           id="mobile-nav"
           className={mobileNavOpen ? "mobile-nav mobile-nav-open" : "mobile-nav"}
+          data-header-disclosure
         >
           <nav className="nav nav-mobile" aria-label="Mobile primary">
             {navItems.map((item) => (

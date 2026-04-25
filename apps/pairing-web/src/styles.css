@@ -169,6 +169,13 @@ button {
   min-width: 0;
 }
 
+.brand-mark {
+  width: 64px;
+  height: 64px;
+  object-fit: contain;
+  flex: 0 0 auto;
+}
+
 .eyebrow,
 .panel-label {
   margin: 0;
@@ -1026,6 +1033,11 @@ p {
 
   .brand-subtitle {
     display: none;
+  }
+
+  .brand-mark {
+    width: 56px;
+    height: 56px;
   }
 
   .panel,
