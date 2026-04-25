@@ -8,6 +8,8 @@ import type {
   JoinInviteResponse,
   PairingIdentity,
   PublicKeyBundle,
+  ResetPairingRequest,
+  ResetPairingResponse,
 } from "@ghostscript/shared";
 
 const DEFAULT_PAIRING_API_BASE_URL = "http://localhost:8787";
@@ -51,6 +53,10 @@ export async function confirmInvite(
     `/pairing/invites/${encodeURIComponent(inviteCode)}/confirm`,
     request,
   );
+}
+
+export async function resetPairing(request: ResetPairingRequest): Promise<ResetPairingResponse> {
+  return requestJson<ResetPairingResponse>("/pairing/reset", request);
 }
 
 export function buildPairingIdentity(subject: string): PairingIdentity {

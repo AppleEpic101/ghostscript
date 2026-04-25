@@ -99,6 +99,12 @@ input {
   border: 1px solid rgba(194, 221, 255, 0.12) !important;
 }
 
+.popup-danger {
+  border: 1px solid rgba(248, 113, 113, 0.35) !important;
+  background: linear-gradient(135deg, #ef4444, #b91c1c) !important;
+  color: #fff5f5 !important;
+}
+
 .popup-primary {
   margin-top: 16px;
 }

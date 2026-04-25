@@ -58,6 +58,26 @@ export function writeStoredJoinInviteState(state: StoredJoinInviteState) {
   writeStorageValue(JOIN_INVITE_STORAGE_KEY, state);
 }
 
+export function clearGhostscriptStorage() {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const keysToRemove: string[] = [];
+
+  for (let index = 0; index < window.localStorage.length; index += 1) {
+    const key = window.localStorage.key(index);
+
+    if (key?.startsWith(STORAGE_PREFIX)) {
+      keysToRemove.push(key);
+    }
+  }
+
+  for (const key of keysToRemove) {
+    window.localStorage.removeItem(key);
+  }
+}
+
 export function getOrCreateAnonymousSubject(): string {
   ensureFreshDeployStorage();
   const existingSubject = readRawStorageValue(ANONYMOUS_SUBJECT_STORAGE_KEY);
@@ -118,19 +138,6 @@ export function ensureFreshDeployStorage() {
     return;
   }
 
-  const keysToRemove: string[] = [];
-
-  for (let index = 0; index < window.localStorage.length; index += 1) {
-    const key = window.localStorage.key(index);
-
-    if (key?.startsWith(STORAGE_PREFIX)) {
-      keysToRemove.push(key);
-    }
-  }
-
-  for (const key of keysToRemove) {
-    window.localStorage.removeItem(key);
-  }
-
+  clearGhostscriptStorage();
   window.localStorage.setItem(DEPLOY_TOKEN_STORAGE_KEY, CURRENT_DEPLOY_TOKEN);
 }

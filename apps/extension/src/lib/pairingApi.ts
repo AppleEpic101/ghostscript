@@ -6,6 +6,8 @@ import type {
   InviteSessionStatusResponse,
   JoinInviteRequest,
   JoinInviteResponse,
+  ResetPairingRequest,
+  ResetPairingResponse,
 } from "@ghostscript/shared";
 
 const DEFAULT_PAIRING_API_BASE_URL = "http://localhost:8787";
@@ -41,6 +43,10 @@ export async function confirmInvite(inviteCode: string, request: ConfirmVerifica
     `/pairing/invites/${encodeURIComponent(inviteCode)}/confirm`,
     request,
   );
+}
+
+export async function resetPairing(request: ResetPairingRequest) {
+  return requestJson<ResetPairingResponse>("/pairing/reset", request);
 }
 
 async function requestJson<T>(path: string, body?: unknown, method = "POST"): Promise<T> {

@@ -865,6 +865,15 @@ p {
   box-shadow: 0 16px 30px rgba(88, 101, 242, 0.22);
 }
 
+.danger-button {
+  margin-top: 18px;
+  background: #b93845;
+}
+
+.danger-button:hover {
+  box-shadow: 0 16px 30px rgba(185, 56, 69, 0.24);
+}
+
 @media (max-width: 960px) {
   .header-bar {
     grid-template-columns: minmax(0, 1fr) auto;

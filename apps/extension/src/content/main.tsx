@@ -14,11 +14,14 @@ import {
 import { deriveSessionSecrets, decryptTextMessage, encryptTextMessage } from "../lib/crypto";
 import { buildFallbackCoverText, decodeEnvelopeFromText, encodeEnvelopeIntoCoverText, zeroWidthStegoCodec } from "../lib/messages";
 import { getConversationState, getPrimaryContact, readExtensionState, updateConversationState } from "../lib/pairingStore";
+import { getInviteSessionStatus } from "../lib/pairingApi";
+import { clearStorageValues } from "../lib/storage";
 import { getRuntimeVaultState, getUnlockedIdentity, initializeIdentityVault, lockIdentityVault, unlockIdentityVault } from "../lib/vault";
 import overlayStyles from "./styles.css?inline";
 
 const shadowRoots = new WeakMap<HTMLElement, ShadowRoot>();
 const overlayHosts = new WeakMap<HTMLElement, HTMLElement>();
+const SESSION_SYNC_POLL_MS = 3000;
 
 function GhostscriptOverlay() {
   const [vaultState, setVaultState] = useState<VaultState>("uninitialized");
@@ -50,6 +53,55 @@ function GhostscriptOverlay() {
     }, 1500);
 
     return () => {
+      window.clearInterval(interval);
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    let requestInFlight = false;
+
+    const syncActivePairing = async () => {
+      if (requestInFlight) {
+        return;
+      }
+
+      const extensionState = await readExtensionState();
+      const activePairing = extensionState.activePairing;
+
+      if (!activePairing || activePairing.session.status === "invalidated") {
+        return;
+      }
+
+      requestInFlight = true;
+
+      try {
+        const response = await getInviteSessionStatus(activePairing.inviteCode);
+
+        if (cancelled || response.session.status !== "invalidated") {
+          return;
+        }
+
+        await clearStorageValues();
+        lockIdentityVault();
+        setStatusMessage("The connection was ended from the other side.");
+        setPlaintext("");
+        setCoverText("");
+        await refreshState();
+      } catch {
+        // The popup surfaces pairing API errors. The overlay only needs to drop state once invalidated.
+      } finally {
+        requestInFlight = false;
+      }
+    };
+
+    void syncActivePairing();
+    const interval = window.setInterval(() => {
+      void syncActivePairing();
+    }, SESSION_SYNC_POLL_MS);
+
+    return () => {
+      cancelled = true;
       window.clearInterval(interval);
     };
   }, []);

@@ -5,7 +5,12 @@ import { LandingRoute } from "./routes/LandingRoute";
 import { CreateInviteRoute } from "./routes/CreateInviteRoute";
 import { JoinInviteRoute } from "./routes/JoinInviteRoute";
 import { VerifyRoute } from "./routes/VerifyRoute";
-import { ensureFreshDeployStorage } from "./lib/pairingSession";
+import { getInviteSessionStatus } from "./lib/pairingApi";
+import {
+  clearGhostscriptStorage,
+  ensureFreshDeployStorage,
+  readStoredPairingSession,
+} from "./lib/pairingSession";
 
 type ThemePreference = "light" | "dark" | "system";
 type AppliedTheme = Exclude<ThemePreference, "system">;
@@ -19,6 +24,7 @@ const navItems = [
 ];
 
 const THEME_STORAGE_KEY = "ghostscript-theme";
+const SESSION_SYNC_POLL_MS = 3000;
 
 function getStoredThemePreference(): ThemePreference {
   if (typeof window === "undefined") {
@@ -144,6 +150,46 @@ export function App() {
       document.removeEventListener("pointerdown", closeDisclosureOnOutsideClick);
     };
   }, [openDisclosure]);
+
+  useEffect(() => {
+    let cancelled = false;
+    let requestInFlight = false;
+
+    const syncStoredSession = async () => {
+      const storedSession = readStoredPairingSession();
+
+      if (!storedSession || storedSession.session.status === "invalidated" || requestInFlight) {
+        return;
+      }
+
+      requestInFlight = true;
+
+      try {
+        const response = await getInviteSessionStatus(storedSession.inviteCode);
+
+        if (cancelled || response.session.status !== "invalidated") {
+          return;
+        }
+
+        clearGhostscriptStorage();
+        window.location.replace("/");
+      } catch {
+        // Route-level polling already owns surfacing transient API errors.
+      } finally {
+        requestInFlight = false;
+      }
+    };
+
+    void syncStoredSession();
+    const intervalId = window.setInterval(() => {
+      void syncStoredSession();
+    }, SESSION_SYNC_POLL_MS);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, []);
 
   return (
     <div className="shell" data-theme={appliedTheme}>

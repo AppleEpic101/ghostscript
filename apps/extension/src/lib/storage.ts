@@ -70,3 +70,23 @@ export async function removeStorageValue(key: string) {
     });
   });
 }
+
+export async function clearStorageValues() {
+  const storage = getChromeStorage();
+
+  if (!storage) {
+    window.localStorage.clear();
+    return;
+  }
+
+  await new Promise<void>((resolve, reject) => {
+    storage.clear(() => {
+      if (chrome.runtime.lastError) {
+        reject(new Error(chrome.runtime.lastError.message));
+        return;
+      }
+
+      resolve();
+    });
+  });
+}

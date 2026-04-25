@@ -6,8 +6,9 @@ import {
   type TrustStatus,
 } from "@ghostscript/shared";
 import { StatusPill } from "../components/StatusPill";
-import { getInviteSessionStatus } from "../lib/pairingApi";
+import { getInviteSessionStatus, resetPairing } from "../lib/pairingApi";
 import {
+  clearGhostscriptStorage,
   readStoredPairingSession,
   writeStoredPairingSession,
   type StoredPairingSession,
@@ -20,6 +21,7 @@ export function LandingRoute() {
   const [inviteStatus, setInviteStatus] = useState<InviteSessionStatusResponse | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isPolling, setIsPolling] = useState(false);
+  const [isEndingConnection, setIsEndingConnection] = useState(false);
   const pollingRequestInFlight = useRef(false);
   const { identity, contact, sampleMessage } = mockPairingSnapshot;
   const verificationProgress = storedSession
@@ -40,6 +42,25 @@ export function LandingRoute() {
   useEffect(() => {
     setStoredSession(readStoredPairingSession());
   }, []);
+
+  const handleEndConnection = async () => {
+    if (!storedSession) {
+      return;
+    }
+
+    try {
+      setIsEndingConnection(true);
+      setErrorMessage(null);
+      await resetPairing({ inviteCode: storedSession.inviteCode });
+      clearGhostscriptStorage();
+      setInviteStatus(null);
+      setStoredSession(null);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Unable to end the connection.");
+    } finally {
+      setIsEndingConnection(false);
+    }
+  };
 
   useEffect(() => {
     if (!storedSession) {
@@ -177,6 +198,16 @@ export function LandingRoute() {
               <dd>{storedSession?.session.status ?? "Not started"}</dd>
             </div>
           </dl>
+          {storedSession ? (
+            <button
+              className="primary-button danger-button"
+              type="button"
+              onClick={() => void handleEndConnection()}
+              disabled={isEndingConnection}
+            >
+              {isEndingConnection ? "Ending connection..." : "End connection"}
+            </button>
+          ) : null}
           {errorMessage ? (
             <div className="invite-status-box invite-status-box-warning">
               <p className="invite-status-title">Unable to refresh live progress.</p>

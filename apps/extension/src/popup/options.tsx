@@ -6,7 +6,7 @@ import {
   type PairingParticipant,
   type VaultState,
 } from "@ghostscript/shared";
-import { confirmInvite, createInvite, getInviteSessionStatus, joinInvite } from "../lib/pairingApi";
+import { confirmInvite, createInvite, getInviteSessionStatus, joinInvite, resetPairing } from "../lib/pairingApi";
 import {
   applyConfirmationResult,
   applyInviteSessionStatus,
@@ -15,6 +15,7 @@ import {
   storeActivePairing,
   storeContact,
 } from "../lib/pairingStore";
+import { clearStorageValues } from "../lib/storage";
 import { getRuntimeVaultState, initializeIdentityVault, lockIdentityVault, unlockIdentityVault } from "../lib/vault";
 import "./popup.css";
 
@@ -27,6 +28,7 @@ function OptionsApp() {
   const [inviteCode, setInviteCode] = useState("");
   const [feedback, setFeedback] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [isEndingConnection, setIsEndingConnection] = useState(false);
   const [stateSummary, setStateSummary] = useState<Awaited<ReturnType<typeof readExtensionState>> | null>(null);
 
   async function refresh() {
@@ -46,11 +48,7 @@ function OptionsApp() {
   useEffect(() => {
     const activePairing = stateSummary?.activePairing;
 
-    if (
-      !activePairing ||
-      activePairing.session.status !== "paired-unverified" ||
-      activePairing.verification?.bothConfirmed
-    ) {
+    if (!activePairing || activePairing.session.status === "invalidated") {
       return;
     }
 
@@ -68,6 +66,14 @@ function OptionsApp() {
         const response = await getInviteSessionStatus(activePairing.inviteCode);
 
         if (cancelled) {
+          return;
+        }
+
+        if (response.session.status === "invalidated") {
+          await clearStorageValues();
+          lockIdentityVault();
+          setFeedback("The connection was ended from the other side and local storage was cleared.");
+          await refresh();
           return;
         }
 
@@ -253,6 +259,31 @@ function OptionsApp() {
     void refresh();
   }
 
+  async function handleEndConnection() {
+    setError(null);
+    setFeedback(null);
+
+    try {
+      setIsEndingConnection(true);
+
+      if (stateSummary?.activePairing?.inviteCode) {
+        await resetPairing({ inviteCode: stateSummary.activePairing.inviteCode });
+      }
+
+      await clearStorageValues();
+      lockIdentityVault();
+      setInviteCode("");
+      setDisplayName("Ghost User");
+      setPassphrase("");
+      setFeedback("Connection ended and local storage cleared.");
+      await refresh();
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "Unable to end the connection.");
+    } finally {
+      setIsEndingConnection(false);
+    }
+  }
+
   const activeContact = stateSummary?.contacts[0] ?? null;
   const activePairing = stateSummary?.activePairing ?? null;
   const verificationProgress =
@@ -364,6 +395,18 @@ function OptionsApp() {
           label="Counterpart"
           value={formatParticipant(activePairing?.counterpart) ?? activeContact?.displayName ?? "Unavailable"}
         />
+        {activePairing || activeContact || stateSummary?.identity ? (
+          <div className="popup-actions">
+            <button
+              type="button"
+              className="popup-danger"
+              onClick={() => void handleEndConnection()}
+              disabled={isEndingConnection}
+            >
+              {isEndingConnection ? "Ending connection..." : "End connection"}
+            </button>
+          </div>
+        ) : null}
       </div>
 
       {feedback ? <p className="popup-feedback popup-feedback--success">{feedback}</p> : null}
