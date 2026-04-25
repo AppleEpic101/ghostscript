@@ -1,351 +1,272 @@
-# PRD for Ghostscript, Including Secure Images
+# PRD for Ghostscript
 
 ## Summary
-`PRD.md` for **Ghostscript**, a **Chrome extension + lightweight companion pairing web app** that brings end-to-end encrypted messaging to **Discord web direct messages and group chats (but not servers)**. The PRD should optimize for **judge trust in security**: use **standard audited cryptography** for the real protection, and treat innocent-looking text or images as a **camouflage/transport layer**, not the security primitive.
+`PRD.md` for **Ghostscript**, a **Chrome extension** that lets paired users send end-to-end encrypted messages through **Discord web text chats** while everyone else sees only ordinary-looking natural-language cover text. The product is explicitly designed for **shared and public chat settings** such as servers and group chats, not just 1:1 direct messages.
+
+The PRD should optimize for two things at once:
+- **Trust in real security**: the hidden payload is protected by standard audited cryptography.
+- **Natural visible output**: the ciphertext is transported as plausible natural-language text using the deterministic LLM encoding method defined in [CoverTextEncodingPRD.md](/Users/peyetuygtf/Projects/ghostscript/CoverTextEncodingPRD.md).
 
 The PRD should define:
-- **Core MVP**: secure text messages in Discord direct messages and group chats
-- **High-priority stretch**: secure image sharing via benign-looking PNG attachments
-- **Pairing model**: both users install the extension and verify each other via **Safety Number / Hash Word comparison** (QR codes are excluded as the MVP is scoped to Desktop Chrome)
-- **Security language**: replace “military-style encryption” with “modern audited cryptography”
+- **Core MVP**: secure text messages on Discord web across DMs, group DMs, servers, and server channels
+- **Pairing model**: invite creation and joining entirely inside the extension using a short-lived `4-digit` code
+- **Cover-text setup**: the inviter supplies a default cover-text topic during invite creation
+- **Security language**: Ghostscript provides confidentiality and tamper resistance while making messages look like ordinary text, without claiming perfect adversarial undetectability
+- **Stretch feature**: secure image sharing after text works reliably
 
 ## Key Changes To Capture In The PRD
 ### Product definition
-- Position Ghostscript as a browser-extension privacy overlay for Discord direct messages and group chats where paired users see real plaintext, while Discord and observers only see cover text or benign-looking image attachments.
-- Define the extension as the **system of record** for local identity keys, pairing state, trust state, and per-conversation cryptographic state.
-- Define the companion web app as a convenience surface for pairing UX, not the authoritative holder of secure state.
+- Position Ghostscript as a browser-extension privacy overlay for Discord web text chats where paired users can reveal the real plaintext while Discord and bystanders see only normal-looking cover text.
+- Define the extension as the **system of record** for local identity keys, pairing state, trust state, per-contact cover-topic defaults, and per-conversation cryptographic state.
+- Remove the user-facing companion website entirely. The product experience for invite creation, joining, linking, sending, and reading secure messages lives inside the extension.
+- Support these Discord surfaces for MVP:
+  - direct messages
+  - group direct messages
+  - servers
+  - server channels
+- Explicitly allow Ghostscript to operate in public or shared spaces where non-paired observers can read the visible cover text but cannot reveal the hidden plaintext.
 - Keep MVP scope to:
   - Discord web on desktop Chrome
-  - Direct messages and group chats
-  - Text messages
-  - Manual secure pairing
-- Add image support as a **stretch feature after text MVP**, not equal-scope MVP.
+  - text messages
+  - extension-native invite creation and code entry
+  - automatic local encryption plus LLM-based natural-language transport encoding
+- Keep secure images as a **stretch feature after text MVP**, not equal-scope MVP.
 - Explicitly exclude for v1:
-  - Discord servers, server channels, and forum surfaces
-  - Mobile
-  - Multi-device sync
-  - Perfect undetectability
-  - Deep-learning image-to-image hiding in production
-- Allow AI-generated natural-language cover text as an optional usability layer for text messages, but keep it explicitly non-authoritative: the secure payload remains the encrypted Unicode steganographic suffix, and decryption must never depend on the semantic content of the generated prose.
+  - mobile
+  - multi-device sync
+  - perfect steganographic undetectability
+  - compatibility across different model families or tokenizers for the same encoded message
+  - a separate user-facing website
 
 ### Security architecture
-- Lock the PRD to standard crypto, not custom reversible “sentence encryption.”
+- Lock the PRD to standard crypto for confidentiality, not custom sentence-level reversible encryption.
 - Use:
   - `X25519` for key agreement
   - `HKDF-SHA-256` for key derivation
-  - `XChaCha20-Poly1305` for authenticated encryption, implemented through a browser-safe library such as `libsodium.js` because browser `SubtleCrypto` does not natively expose XChaCha20-Poly1305 on MDN’s supported list
-  - `Ed25519` fingerprints/signatures for identity verification
+  - `XChaCha20-Poly1305` for authenticated encryption, implemented through a browser-safe library such as `libsodium.js`
+  - `Ed25519` fingerprints for local identity and contact binding
   - `Argon2id` for wrapping local private keys with a passphrase
 - Require explicit counter-based nonces for text-message encryption:
   - derive the initial `192-bit` XChaCha20-Poly1305 nonce base during the authenticated `X25519` + `HKDF-SHA-256` handshake
-  - maintain a synchronized per-conversation counter locally on each side
-  - Transmit a 4-byte msg_id to derive the 24-byte nonce locally, saving 20 bytes of payload space compared to a standard XChaCha20 nonce.
-  - do not transmit the full `24-byte` nonce inside the steganographic payload, in order to conserve Discord message budget
+  - maintain a synchronized per-contact or per-conversation message counter locally on each side
+  - transmit a compact `msg_id` so both sides derive the full nonce locally
+- State clearly that the **LLM encoding layer is transport only**:
+  - plaintext is encrypted first
+  - the encrypted bitstream is then encoded into natural-language tokens
+  - decryption authority comes from the cryptographic payload, not from the semantics of the visible sentence
 - Require the backend to store only:
   - public keys
-  - pairing invite/session state
+  - invite/session state
   - encrypted metadata if needed
-- Allow participant identities to be either:
-  - extension-scoped anonymous identities derived from locally generated key material
-  - optional account-linked identities used for display, continuity, or abuse controls in future iterations
-- State clearly that account auth is **not required for MVP security** because trust is established by local key ownership plus manual Safety Number / Hash Word verification.
 - Require the backend to never store:
   - plaintext messages
-  - plaintext images
   - conversation secrets
   - unwrapped private keys
-- Require fail-closed decryption behavior:
-  - if `Poly1305` authentication fails, the client must not attempt to render or recover partial plaintext
-  - the UI must render a `Tampered/Corrupted` state for the affected message or asset
+  - plaintext image payloads
+- Treat the `4-digit` invite code as a rendezvous token, not a cryptographic secret. The actual security boundary is the locally held key material and the derived shared session.
+- Require fail-closed behavior:
+  - if transport decoding does not produce a valid Ghostscript frame, the message remains ordinary visible cover text
+  - if a valid frame is reconstructed but `Poly1305` authentication fails, the client must not render partial plaintext
+  - the UI must render a `Tampered/Corrupted` state only when framed Ghostscript content fails verification, not for ordinary non-Ghostscript messages
 - Keep Signal-style ratcheting as roadmap, not MVP.
 
+### Pairing and onboarding
+- Define onboarding as an **extension-only flow**:
+  - inviter opens Ghostscript
+  - inviter enters a default cover-text topic in a setup text box
+  - extension creates a short-lived `4-digit` numeric invite code
+  - inviter shares that code out of band
+  - joiner enters the code inside Ghostscript
+  - extension links the two users and persists the paired relationship locally
+- The invite-time topic becomes the default cover-topic seed for that paired connection until the user explicitly changes it later.
+- Treat successful code entry as sufficient trust for MVP. Do not require Safety Number, Hash Word, QR, or third-party account verification in the initial version.
+- Require the invite service to enforce:
+  - short expiry
+  - single-use semantics
+  - aggressive rate limiting / abuse throttling because the code space is only `10,000` combinations
+- Require secure operations to remain possible after pairing even if no website is open, because there is no website in the user flow.
+
 ### Text-message extension flow
-- Require a **secure Ghostscript compose box** (an in-DOM injected React component that hovers near or replaces the native Discord text input, rather than living isolated inside the extension popup) instead of typing secrets into Discord’s native input.
+- Require a **secure Ghostscript compose box** as an in-DOM injected overlay near or replacing the native Discord composer. Users must not type protected plaintext directly into Discord’s native input when sending a secure message.
 - Outgoing text flow:
-  - extension must avoid hardcoded, obfuscated Discord CSS classes (e.g., `.messageContent_ab12c`) and instead rely on structural or attribute-based DOM selectors (e.g., `[role="textbox"]`, `data-list-item-id`) to survive Discord UI updates
-  - user writes plaintext in extension UI
-  - user can choose either:
-    - manual cover text entry
-    - automatic AI-generated cover text
-  - when automatic cover text is enabled, the extension generates benign-looking cover prose locally or via a privacy-reviewed API path using user-provided style controls for:
-    - tone
-    - context
-    - speaking style
-  - default AI cover-text preset must be `casual SMS bro tone over Discord`
-  - AI cover text must be **conversation-aware**: when possible, it should read the recent Discord direct-message or group-chat thread and produce an innocent-sounding message that plausibly continues the visible topic, tone, and pacing of the conversation (for example, if the recent thread is about pizza, the generated cover text should look like a natural pizza-related follow-up rather than a random generic message)
-  - AI generation must operate on a **conversation context window** built from recent Discord messages already present in the web client, so the cover text matches the surrounding thread instead of sounding detached
-  - the AI prompt context should be derived from the **recent visible and locally cached Discord conversation history**, not from remote pairing metadata or any server-side message relay
-  - the extension must support three context sources, in priority order:
-    - a local rolling cache of previously observed messages for the active conversation
-    - messages currently mounted in the Discord page DOM
-    - additional older messages loaded on demand by controlled upward scrolling of the active direct-message or group-chat history pane
-  - the extension must define a bounded history-loading policy for cover-text generation:
-    - first use the last locally cached messages for the active conversation if available
-    - if insufficient context is cached, read the currently rendered Discord messages from the DOM
-    - if the rendered DOM still does not provide enough context, progressively scroll upward to request older history from Discord until either the target context budget is reached or a configured safety/time limit is hit
-  - the PRD must treat Discord history acquisition for AI as a **DOM-driven loading process**, not a dependency on undocumented Discord APIs
-  - the extension must not require direct interception of Discord websocket frames, fetch/XHR bodies, or private internal stores in order to generate contextual cover text for MVP
-  - network-level interception of Discord traffic may be explored later as a research or optimization path, but it is explicitly out of scope for MVP and must not be a dependency for core message send/receive behavior
-  - because Discord virtualizes message lists, the extension must assume that **off-screen messages are not immediately available** until they have either been cached locally or loaded into the DOM through user navigation or controlled scrolling
-  - the extension must set concrete upper bounds for AI context gathering so the feature remains predictable:
-    - maximum number of raw messages to inspect for cover-text generation
-    - maximum number of scroll attempts or total history-loading time
-    - maximum prompt token budget after summarization
-  - if older history cannot be loaded within those bounds, AI generation must continue with the best available recent context rather than blocking secure send
-  - before invoking AI, the extension should normalize the context window into a compact local summary that captures:
-    - the recent topic of conversation
-    - the conversational tone and speaking style
-    - short-term entities or references under discussion
-    - whether the conversation is active, paused, joking, argumentative, logistical, etc.
-  - AI must generate **cover text only**; it must never be responsible for encryption, decryption, payload framing, steganographic encoding, or plaintext recovery
-  - the hidden encrypted payload must remain authoritative even if the generated cover text is irrelevant, low quality, or semantically inconsistent
-  - the AI prompt must prefer using recent cover conversation context over the secure plaintext itself; the secure plaintext should not be required as model input in order to produce a plausible innocent message
-  - if product design later chooses to incorporate limited plaintext hints into prompt construction, that choice must be explicitly user-controlled, privacy-reviewed, and documented as a higher-risk mode rather than the default
-  - the extension must sanitize and minimize any context sent to an external model endpoint:
-    - strip Discord UI artifacts, timestamps, and non-message chrome
-    - bound the message window
-    - remove or mask obviously sensitive identifiers when feasible
-    - avoid sending decrypted historical Ghostscript plaintext unless the user explicitly opts into a higher-context mode
-  - the preferred privacy posture is:
-    - local generation when practical
-    - otherwise a privacy-reviewed API path with clear user disclosure
-    - no server-side storage of raw conversation context beyond transient processing required to answer the generation request
-  - the system prompt/contract for AI cover-text generation must require that generated text:
-    - sounds innocent and plausible in context
-    - does not mention encryption, secrecy, hidden messages, codes, or pairing
-    - does not copy prior messages too literally
-    - does not include suspicious unicode, markup, or formatting outside the steganographic suffix added by the extension
-    - stays within a configurable natural-language length budget so the combined cover text plus hidden suffix remains inside Discord’s `2,000-character` cap
-  - the AI output should be validated locally before insertion:
-    - reject empty or obviously malformed outputs
-    - reject outputs that contain banned terms related to secrecy or cryptography
-    - reject outputs whose length leaves insufficient room for the hidden payload
-    - retry once with a stricter prompt or fall back to deterministic/manual cover text if validation fails
-  - extension compresses plaintext with `zlib/deflate` via `fflate` whenever the plaintext payload exceeds `64 bytes`
-  - extension encrypts locally
-  - encrypted bytes are encoded with a Base-16 steganographic alphabet using an exact array of safe, non-printing Unicode characters (U+200B, U+200C, U+200D, U+2060, U+2061, U+2062, U+2063, U+2064, U+206A, U+206B, U+206C, U+206D, U+206E, U+206F, U+FEFF, and U+FFA0) which are appended to the generated Cover Text, yielding 4 bits per character and a 1:2 byte-to-character expansion ratio suitable for Discord’s `2,000-character` cap
-  - only cover text is inserted into Discord
-  - insertion into Discord must use `document.execCommand('insertText')` or equivalent `InputEvent` simulation so the React/Slate.js editor state updates correctly and the `Send` button is activated
-  - if AI generation is unavailable, rate-limited, rejected by policy, or times out, the compose flow must fall back to either a deterministic local cover-text template or manual user-authored cover text without blocking secure send
+  - extension avoids brittle hardcoded Discord CSS classes and instead relies on structural or attribute-based selectors where possible
+  - user writes plaintext in the Ghostscript overlay
+  - extension selects the active paired recipient or paired sender context for the current Discord thread
+  - extension loads the saved default cover-topic seed for that paired relationship and may combine it with recent conversation context to keep visible output plausible
+  - extension builds a bounded context window from:
+    - locally cached recent messages
+    - currently rendered Discord DOM messages
+    - controlled upward scrolling when more context is needed and time limits allow
+  - extension may compress plaintext with `zlib/deflate` via `fflate` when the payload exceeds a configured threshold such as `64 bytes`
+  - extension encrypts locally and constructs a message envelope containing protocol version, sender identifier, message counter, ciphertext, and authentication tag
+  - extension converts the encrypted bitstream into natural-language output using the rank-selection encoding method from [CoverTextEncodingPRD.md](/Users/peyetuygtf/Projects/ghostscript/CoverTextEncodingPRD.md)
+  - only the generated natural-language message is inserted into Discord
+  - insertion into Discord must use `insertText`-style editor-compatible events so Discord’s editor state updates correctly and the send action remains native
+- The LLM transport encoding contract must require:
+  - identical model weights or checkpoint family, tokenizer, and inference configuration on both encoder and decoder sides
+  - deterministic candidate-pool construction at every token step
+  - deterministic tie-breaking, such as ascending token ID when probabilities tie
+  - exclusion of special tokens and any token classes blocked by the shared encoding config
+  - merge-safe token selection so detokenization and retokenization reproduce the same token sequence
+  - a configured `bits per step` parameter `n`
+  - a deterministic fallback rule when the candidate pool is smaller than `2^n`
+  - an explicit payload-length strategy so the decoder knows when to stop emitting bits
+- Preferred defaults for the PRD:
+  - fallback strategy: **reduce bits for this step**
+  - payload termination strategy: **encode a length header before payload bits**
+- The PRD should treat model/version drift as a protocol compatibility issue:
+  - encoded text is only guaranteed to decode under the same pinned model/tokenizer/config
+  - future model upgrades require explicit versioning and rollout planning
 - Incoming text flow:
-  - extension detects Ghostscript messages using resilient structural or attribute-based DOM selectors (avoiding obfuscated classes)
-  - decodes and decrypts locally
-  - renders plaintext in an extension-controlled overlay
-  - does not write recoverable plaintext back into Discord’s page DOM
-  - **Edge Case**: If the extension detects a valid Ghostscript steganographic signature but lacks the required shared key, it must overlay the cover text with an interactive "Encrypted Message: Click to Pair" button.
+  - extension observes Discord messages using resilient DOM selectors
+  - for messages authored by paired contacts, the extension may opportunistically attempt Ghostscript decoding in the background
+  - if no valid Ghostscript frame is recovered, the message remains visible as ordinary cover text with no tamper alert
+  - if a valid frame is recovered and decrypts successfully, the extension renders the real plaintext in an extension-controlled overlay
+  - the extension must not write recoverable plaintext back into Discord’s readable page DOM
+  - if a valid frame is recovered but authentication fails, the extension renders a `Tampered/Corrupted` state
 - Include trust/status states:
   - unpaired
-  - paired-unverified
-  - verified
+  - invite-pending
+  - paired
   - locked
   - tampered/decryption-failed
 
+### Cover-text behavior and public claims
+- The visible message inserted into Discord should read like ordinary natural-language text appropriate to the surrounding conversation and the pair’s default topic seed.
+- The product should explicitly say the goal is to make secure messages look like plausible normal chat messages in shared spaces.
+- The PRD must not promise that Ghostscript is impossible to detect by a determined analyst. It should instead say:
+  - Discord and ordinary observers see only normal-looking text
+  - plaintext recovery requires the paired extension state plus the matching cryptographic and model configuration
+  - Ghostscript aims for plausible visible deniability in normal chat use, not mathematically provable invisibility
+
 ### Image stretch feature
-- Define secure-image support as **encrypted image steganography inside benign PNG attachments**, not true semantic image transformation.
-- PRD should state clearly that the system does **not** turn one meaningful image into another through “magic reversal”; instead it:
-  - compresses and encrypts the secret image
-  - embeds the encrypted payload inside a benign-looking cover PNG
-  - extracts and decrypts it on the other side
-- Lock the stretch design to:
-  - **PNG attachments only**
-  - **lossless round-trip required**
-  - **randomized LSB embedding in RGB channels**, keyed per conversation
-  - exact payload format with protocol version, full 24-byte random nonce, ciphertext length, and integrity check
-- Define sender flow for images:
-  - user selects secret image
-  - extension locally downsizes/compresses it to a bounded size budget
-  - extension encrypts the image bytes
-  - extension embeds encrypted bytes into a user-selected or bundled benign PNG cover image
-  - extension uploads the stego PNG as the Discord attachment
-- Define receiver flow for images:
-  - extension detects a Ghostscript-compatible attachment
-  - fetches the original attachment bytes from the `cdn.discordapp.com` source rather than Discord preview proxies, in order to bypass lossy `WebP`/`JPEG` transformations
-  - extracts payload from PNG pixel data
-  - decrypts locally
-  - renders the real image in an overlay or secure preview panel
-- Set concrete stretch constraints so the spec is implementable:
-  - cover image must be PNG and at least `1024x1024`
-  - embed in **1 LSB per RGB channel**
-  - secret image is auto-resized to max `512px` on the long edge
-  - compressed plaintext image budget is capped at `128 KB` before encryption
-  - exact-byte preservation is required; if the carrier is transformed, extraction fails closed
-- Add a validation requirement in the PRD: verify experimentally whether Discord’s upload/download path preserves original PNG bytes well enough for this mode. If it does not, image stego remains demo-only or moves to fallback transport.
+- Define secure-image support as a **stretch feature** after text is solid.
+- Keep the image design based on:
+  - local encryption of the secret image
+  - benign PNG carriers
+  - extraction and decryption on the receiving side
+- Remove any dependency on a website or website-managed state from the image story.
 - Keep these image ideas out of v1 and in roadmap/research:
   - deep-learning “hide image in image” networks
   - generative innocent-image synthesis
   - reversible semantic remapping of one photo into another
 
-### Pairing web app
-- Define the web app as a **companion pairing surface** for key exchange and verification, not a message relay and not the authority for secure local state.
-- Required flows:
-  - create invite code
-  - join invite by entering the invite code inside Ghostscript
-  - exchange public keys
-  - display Safety Number / Hash Word
-  - mark pairing verified after both users confirm
-- Keep onboarding simple:
-  - both users install the extension
-  - the inviter shares a short-lived invite code out of band
-  - the joiner opens Ghostscript and manually enters that code
-  - both must verify the safety code before decryption is marked trusted
-- Require short-lived pairing sessions and TLS.
-- Do not require Google authentication or any third-party account provider for MVP pairing.
-- If an account-backed identity is offered in the web app, define it as optional product UX rather than a cryptographic trust anchor unless the backend later verifies provider-issued tokens server-side.
-
-### Extension-Web State Persistence
-- Require the extension to be the **single source of truth** for:
-  - local identity key material
-  - active pairing session state
-  - paired contacts
-  - trust status
-  - per-conversation counters and cryptographic metadata
-- Allow the web app to keep only **ephemeral convenience state** such as partially completed forms, last viewed invite code, or non-authoritative UI cache.
-- The web app must not be treated as the durable authority for pairing or trust state through its own `localStorage`.
-- Define extension-to-web coordination as a narrow bridge:
-  - the web UI requests a current pairing snapshot from the extension
-  - create/join/confirm actions initiated from the web UI are executed by the extension or handed off to the extension for persistence
-  - the extension then updates its local durable store after successful API responses
-- Preferred bridge model for Chrome MVP:
-  - use extension messaging between the web app and extension background/runtime
-  - expose only the minimum commands needed for pairing and read-only session snapshots
-- Explicitly avoid relying on shared browser storage between the extension origin and web-app origin as a synchronization mechanism, because it creates split-brain state and inconsistent trust decisions.
-- Define the persistence model so that:
-  - reloading the web app must rehydrate from the extension when available
-  - reloading the extension must preserve authoritative state from extension storage
-  - secure operations remain possible even if the companion web app is closed
-
 ## Public Interfaces And Types To Define In The PRD
 - Extension/local types:
   - `IdentityKey`
+  - `InviteCode`
   - `ActivePairingState`
   - `PairedContact`
   - `ConversationState`
   - `TrustStatus`
-  - `CoverTextStyle`
-  - `StegoCodec`
-  - `EncodedGhostscriptMessage`
-  - `StegoImageEnvelope`
-- Extension-web bridge types to define:
-  - `PairingSnapshot`
-  - `ExtensionBridgeRequest`
-  - `ExtensionBridgeResponse`
-- `CoverTextStyle` definition:
-  - `mode: 'manual' | 'ai-generated'`
-  - `tone: string`
-  - `context: string`
-  - `speakingStyle: string`
-  - `presetId?: string`
-  - default preset values should resolve to casual SMS bro tone suitable for Discord direct messages and group chats
-- Internal AI context types to define:
+  - `CoverTopicProfile`
+  - `LLMEncodingConfig`
   - `ConversationContextWindow`
   - `ConversationContextSummary`
-  - `CoverTextGenerationRequest`
-  - `CoverTextGenerationResult`
+  - `EncodedGhostscriptMessage`
+  - `MessageEnvelope`
+  - `StegoImageEnvelope`
+- `InviteCode` should capture:
+  - `code: string`
+  - `format: '4-digit'`
+  - expiration timestamp
+  - single-use status
+- `CoverTopicProfile` should capture:
+  - the user-entered default topic text
+  - optional tone/style hints if the product later exposes them
+  - when the topic was last updated
+  - which paired contact it applies to
+- `LLMEncodingConfig` should capture:
+  - pinned model identifier
+  - pinned tokenizer identifier or version
+  - `temperature`
+  - `p_min`
+  - `bitsPerStep`
+  - excluded token set
+  - fallback strategy
+  - tie-break rule
+  - payload termination strategy
 - `ConversationContextWindow` should capture:
   - conversation id
   - source breakdown (`cache`, `visible-dom`, `history-scroll`)
-  - ordered recent messages with sender role, text, and local timestamps if available
-  - whether the history window is partial because scroll/time limits were reached
+  - ordered recent messages with sender role and text
+  - whether the history window is partial because limits were reached
 - `ConversationContextSummary` should capture:
   - dominant topic
   - current subtopic
   - tone/mood
-  - stylistic cues
-  - salient entities/keywords safe to reuse in cover text
-- `CoverTextGenerationRequest` should capture:
-  - selected `CoverTextStyle`
-  - bounded `ConversationContextSummary`
-  - target character budget
-  - whether generation is local or remote
-- `CoverTextGenerationResult` should capture:
-  - generated cover text
-  - validation status
-  - fallback reason if rejected
-  - metadata indicating which context sources were used
-- `StegoCodec` module definition:
-  - `encode(bytes: Uint8Array): string`
-  - `decode(text: string): Uint8Array`
-  - Base-16 alphabet backed by `16` specific non-printing Unicode characters (U+200B, U+200C, U+200D, U+2060, U+2061, U+2062, U+2063, U+2064, U+206A, U+206B, U+206C, U+206D, U+206E, U+206F, U+FEFF, and U+FFA0) appended to cover text.
-  - deterministic codec metadata sufficient to validate message framing and version compatibility
-- `ActivePairingState` should capture:
-  - invite code
-  - current pairing session
-  - local participant
-  - counterpart participant if known
-  - verification state
-- `PairingSnapshot` should capture:
-  - current active pairing state if any
-  - trusted contacts summary
-  - local identity fingerprint
-  - current vault/trust state needed by the companion web UI
-- `ExtensionBridgeRequest` should capture:
-  - `type: 'get-pairing-snapshot' | 'create-invite' | 'join-invite' | 'confirm-invite'`
-  - payload required for the selected action
-- `ExtensionBridgeResponse` should capture:
-  - success/failure status
-  - latest authoritative pairing snapshot when relevant
-  - user-displayable error message when the action fails
-- Text envelope fields via `MessageEnvelope`:
+  - stylistic cues safe to reuse in visible cover text
+- `MessageEnvelope` should capture:
   - `v` for protocol version
-  - `sender_id` (a truncated Ed25519 fingerprint so the receiving extension knows which public key to use for decryption)
-  - `msg_id` for the synchronized message counter used to derive the local nonce
-  - `tag` for the `16-byte` `Poly1305` MAC
+  - `sender_id`
+  - `msg_id`
   - `ct` for ciphertext
-  - codec metadata
-- Image envelope fields:
+  - `tag` for `Poly1305` authentication
+  - any framing metadata needed before LLM transport encoding
+- `EncodedGhostscriptMessage` should capture:
+  - the visible natural-language text inserted into Discord
+  - the pinned encoding config identifier used to produce it
+  - deterministic framing metadata sufficient for the receiver to reproduce the bitstream and validate compatibility
+- Image envelope fields should capture:
   - protocol version
   - image mode (`png-lsb-v1`)
   - sender key id
-  - full 24-byte random nonce
+  - full `24-byte` random nonce
   - encrypted payload length
   - ciphertext
   - integrity tag
-  - optional cover profile id
-- Backend endpoints:
-  - `POST /pairing/invites` to mint a short-lived human-readable invite code
+
+## Backend And API Requirements
+- Define the backend as extension support infrastructure only, not a user-facing product surface.
+- Required capabilities:
+  - mint short-lived `4-digit` invite codes
+  - bind a joiner to an inviter’s live invite session
+  - exchange public-key material or session bootstrap data needed by the extension
+  - expire, revoke, or invalidate used invites
+  - apply abuse controls appropriate to a tiny code space
+- Representative endpoints the PRD should define:
+  - `POST /pairing/invites`
   - `POST /pairing/invites/{code}/join`
   - `POST /pairing/invites/{code}/confirm`
-  - `GET /users/{id}/public-key`
   - `POST /pairing/reset`
+- The backend must not become a message relay or plaintext holder for MVP secure text.
 
 ## Test Plan
-- Pair two fresh users and confirm matching conversation secrets only after verification.
-- Verify pairing succeeds when the joiner manually enters a valid invite code inside Ghostscript.
-- Verify invite codes are short-lived and rejected after expiration or reuse.
-- Verify secure pairing can be completed entirely from the extension without any third-party account sign-in.
-- Verify the companion web app rehydrates its displayed pairing state from the extension rather than treating web `localStorage` as authoritative.
-- Verify create/join/confirm actions initiated from the web app are persisted into extension storage and survive web-app reloads.
-- Verify closing the web app does not affect secure send/receive once extension state is established.
-- Verify Discord only receives cover text for secure text messages.
-- Verify both manual and AI-generated cover text flows successfully carry the same encrypted payload.
-- Verify users can set tone, context, and speaking style for AI cover text and that the default preset is casual SMS bro tone for Discord direct messages and group chats.
-- Verify secure send/receive works in both 1:1 direct messages and Discord group chats.
-- Verify the extension does not activate on Discord servers, server channels, or forum threads.
-- Verify AI-generated cover text uses recent conversation context so that, when the visible thread is about a topic such as pizza, the generated innocent cover text remains plausibly about that topic.
-- Verify cover-text generation uses locally cached and/or visible DOM messages before attempting controlled history scrolling.
-- Verify controlled history scrolling stops at configured message/time limits and does not block send indefinitely when older context cannot be loaded.
-- Verify the system behaves correctly when the relevant prior conversation is off-screen and not yet loaded: the extension should either load bounded additional history or generate from partial context with an explicit fallback path.
-- Verify MVP behavior does not depend on Discord websocket interception or undocumented internal client stores.
-- Verify external AI requests, if enabled, receive only minimized conversation context and do not include unnecessary decrypted Ghostscript plaintext by default.
-- Verify the local validator rejects suspicious AI outputs that mention secrecy, encryption, hidden messages, or produce malformed/oversized cover text.
-- Verify plaintext text never appears in Discord’s native composer or readable page DOM in the secure flow.
-- Send valid Ghostscript text and confirm successful local decode/decrypt.
-- Tamper with any message field and verify integrity failure.
-- Replay a prior TEXT message and verify replay detection (Note: Replay protection is explicitly excluded for Image steganography to minimize state synchronization complexity).
-- Lock the extension and confirm local keys remain unusable until passphrase unlock.
-- Simulate AI cover-text generation failure and verify send falls back cleanly without exposing plaintext or dropping the message.
+- Pair two fresh users entirely from the extension and confirm a `4-digit` invite code is created and consumed successfully.
+- Verify invite codes expire quickly, cannot be reused, and are protected by rate limiting / abuse throttling.
+- Verify the inviter’s topic box becomes the default cover-topic seed for that paired contact until changed.
+- Verify secure send/receive works in:
+  - direct messages
+  - group direct messages
+  - servers
+  - server channels
+- Verify plaintext never appears in Discord’s native composer or readable page DOM during the secure flow.
+- Verify Discord only receives ordinary-looking natural-language text for secure text messages.
+- Verify the receiver can reconstruct the encoded bitstream, recover the message envelope, and decrypt the original plaintext locally.
+- Verify decoding fails closed when:
+  - ciphertext or tag is tampered with
+  - the pinned model or tokenizer does not match
+  - the message was encoded under a different transport config
+- Verify the fallback rule behaves correctly when the candidate pool is smaller than `2^n`.
+- Verify model/version compatibility is surfaced clearly rather than producing silent corruption.
+- Verify messages from unpaired users remain ordinary visible chat text with no false positive secure reveal.
+- Verify messages from paired users that do not reconstruct into a valid Ghostscript frame remain plain visible text instead of being mislabeled as tampered.
+- Verify unpaired observers in shared chats only see the visible cover text and cannot trigger plaintext reveal.
 - For images, validate end-to-end PNG round-trip through Discord upload/download before promising the feature in demo.
-- Embed, send, receive, extract, and decrypt a bounded secret image from a benign PNG carrier.
-- Attempt extraction with the wrong key or a transformed carrier and verify fail-closed behavior with no partial reveal.
+- For images, verify extraction with the wrong key or a transformed carrier fails closed.
 
 ## Assumptions And Defaults
 - `PRD.md` is the only deliverable for implementation mode.
 - The PRD should read like a polished hackathon product spec, not an academic crypto paper.
 - Text is the core MVP.
-- Secure-image stego is a flagship **stretch feature** after text works reliably.
-- The recommended browser crypto implementation for the extension is `libsodium.js`/WASM for XChaCha20-Poly1305 and Argon2id, while standard browser APIs can still be used where appropriate.
-- For MVP, anonymous extension-scoped identities are sufficient for secure pairing; optional account auth may improve UX later but is not part of the cryptographic trust model by default.
-- AI-generated cover text is a convenience layer for message camouflage and tone-matching, not part of the cryptographic trust model or decoding contract.
-- For MVP, Discord conversation context used for AI cover-text generation is obtained from a combination of local cache, rendered page DOM, and bounded controlled scrolling; it is not assumed that the extension has reliable access to arbitrary historical messages that are not currently loaded in the page.
-- For MVP, Discord network traffic interception is explicitly non-required; the extension is expected to function using page-level integration rather than privileged packet inspection.
-- The PRD should explicitly say Ghostscript provides **confidentiality and tamper resistance**, not invisibility against all steganalysis or protection against compromised endpoints.
+- Secure-image stego is a stretch feature after text works reliably.
+- There is no user-facing website in the product flow.
+- A backend service may still exist behind the extension for invite-code exchange and key/session coordination.
+- The invite code is exactly `4 numeric digits`.
+- Successful code entry is sufficient trust for MVP.
+- The invite-time topic persists as the default cover-topic seed for that paired relationship until changed.
+- The authoritative text transport-layer specification is [CoverTextEncodingPRD.md](/Users/peyetuygtf/Projects/ghostscript/CoverTextEncodingPRD.md).
+- The preferred encoding defaults are:
+  - fallback rule: reduce bits for the current step
+  - payload termination: length header
+- Ghostscript provides confidentiality and tamper resistance while making messages look like ordinary text to Discord and bystanders, but it does not claim perfect adversarial undetectability or protection against compromised endpoints.
