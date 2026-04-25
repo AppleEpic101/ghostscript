@@ -123,13 +123,15 @@ The PRD should define:
 ### Pairing web app
 - Define the web app as a **key exchange and verification service**, not a message relay.
 - Required flows:
-  - create invite
-  - join invite
+  - create invite code
+  - join invite by entering the invite code inside Ghostscript
   - exchange public keys
   - display Safety Number / Hash Word
   - mark pairing verified after both users confirm
 - Keep onboarding simple:
   - both users install the extension
+  - the inviter shares a short-lived invite code out of band
+  - the joiner opens Ghostscript and manually enters that code
   - both must verify the safety code before decryption is marked trusted
 - Require short-lived pairing sessions and TLS.
 
@@ -172,7 +174,7 @@ The PRD should define:
   - integrity tag
   - optional cover profile id
 - Backend endpoints:
-  - `POST /pairing/invites`
+  - `POST /pairing/invites` to mint a short-lived human-readable invite code
   - `POST /pairing/invites/{code}/join`
   - `POST /pairing/invites/{code}/confirm`
   - `GET /users/{id}/public-key`
@@ -180,6 +182,8 @@ The PRD should define:
 
 ## Test Plan
 - Pair two fresh users and confirm matching conversation secrets only after verification.
+- Verify pairing succeeds when the joiner manually enters a valid invite code inside Ghostscript.
+- Verify invite codes are short-lived and rejected after expiration or reuse.
 - Verify Discord only receives cover text for secure text messages.
 - Verify both manual and AI-generated cover text flows successfully carry the same encrypted payload.
 - Verify users can set tone, context, and speaking style for AI cover text and that the default preset is casual SMS bro tone for Discord DMs.
