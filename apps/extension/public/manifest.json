@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "Ghostscript",
+  "description": "Privacy overlay for Discord DMs with secure pairing scaffolding.",
+  "version": "0.1.0",
+  "action": {
+    "default_title": "Ghostscript",
+    "default_popup": "popup.html"
+  },
+  "options_page": "options.html",
+  "background": {
+    "service_worker": "assets/background.js",
+    "type": "module"
+  },
+  "permissions": ["storage", "activeTab"],
+  "host_permissions": ["https://discord.com/*"],
+  "content_scripts": [
+    {
+      "matches": ["https://discord.com/channels/*"],
+      "js": ["assets/content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}

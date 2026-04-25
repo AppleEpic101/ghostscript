@@ -1,0 +1,43 @@
+:root {
+  color-scheme: dark;
+  font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+  background: #08111f;
+  color: #eff6ff;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 420px;
+}
+
+.popup-shell {
+  min-height: 100vh;
+  padding: 22px;
+  background:
+    radial-gradient(circle at top left, rgba(48, 102, 190, 0.3), transparent 28%),
+    linear-gradient(180deg, #08111f, #0d1f29);
+}
+
+.popup-eyebrow {
+  margin: 0 0 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 0.72rem;
+  color: #7dd3c6;
+}
+
+.popup-copy {
+  color: #bdd0e6;
+}
+
+.popup-card {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px 12px;
+  margin-top: 16px;
+  padding: 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(194, 221, 255, 0.12);
+  background: rgba(8, 17, 32, 0.72);
+}
