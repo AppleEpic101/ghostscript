@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { LlmService } from "./llmService";
+import { buildCoverTextPrompt, LlmService } from "./llmService";
 
 test("health reports cover-text transport metadata", () => {
   const service = new LlmService();
@@ -51,6 +51,15 @@ test("template cover text avoids generic stock phrasing and can pivot from the r
   assert.doesNotMatch(response.visibleText, /\bvibe\b/i);
   assert.doesNotMatch(response.visibleText, /\bcircle back\b/i);
   assert.doesNotMatch(response.visibleText, /\bfor now\b/i);
+});
+
+test("cover text prompt includes the casual lowercase logistics example style guidance", () => {
+  const prompt = buildCoverTextPrompt("casual convo", ["Alex: u still coming over for the game tonight?"]);
+
+  assert.match(prompt, /lowercase by default/i);
+  assert.match(prompt, /i've got wings/i);
+  assert.match(prompt, /spicy chips/i);
+  assert.match(prompt, /reaction-based/i);
 });
 
 test("decode is no longer supported", async () => {

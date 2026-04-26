@@ -89,7 +89,7 @@ function sanitizeRecentMessages(recentMessages: string[] | undefined) {
     .map((value) => value.slice(0, MAX_RECENT_MESSAGE_CHARS));
 }
 
-function buildCoverTextPrompt(coverTopic: string, recentMessages: string[]) {
+export function buildCoverTextPrompt(coverTopic: string, recentMessages: string[]) {
   const topic = coverTopic.trim();
   return [
     "You generate one ordinary-looking Discord message.",
@@ -99,6 +99,10 @@ function buildCoverTextPrompt(coverTopic: string, recentMessages: string[]) {
     "Sound natural, specific, and a little varied instead of generic or assistant-like.",
     "Match the rhythm of an ongoing conversation: react to the recent messages, add a detail, opinion, question, or small pivot.",
     "It is okay to drift naturally into a nearby topic if that feels human, as long as the message still makes sense as a reply in the same chat.",
+    "Casual style reference: lowercase by default is fine, punctuation can be light, slang and shorthand like 'u', 'lol', 'gotchu', 'nah', or 'im' are okay when they fit.",
+    "Good casual flow can bounce from reacting to something random into making plans or handling logistics without sounding forced.",
+    "Example vibe: 'yo, tell me you've seen the trailer for that new horror movie?' -> 'why do they always go into the basement?' -> 'u still coming over for the game tonight? i've got wings' -> 'bring some spicy chips if u stop by the store'.",
+    "Another good note from that example: messages are playful, reaction-based, a little messy, and not over-written.",
     "Avoid cliches like 'sounds good', 'for now', 'vibe', 'circle back', or anything that reads templated.",
     "Keep it to one or two sentences and under 30 words unless the recent chat clearly runs longer.",
     `Loose topic to draw from: ${topic}`,
