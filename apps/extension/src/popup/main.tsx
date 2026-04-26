@@ -297,10 +297,8 @@ function PopupApp() {
         <img className="popup-brand__logo" src="/icons/ghostscript-128.png" alt="Ghostscript logo" />
       </div>
       <p className="popup-eyebrow">Ghostscript</p>
-      <h1>Pair for concealed Discord messaging</h1>
-      <p className="popup-copy">
-        Ghostscript pairs you with one other person so Discord only sees normal-looking cover text while the pairing service keeps the shared connection state in sync.
-      </p>
+      <h1>Pair for concealed Discord messaging!</h1>
+
 
       <section className="popup-card popup-card--settings">
         <div className="popup-toggle-row">
@@ -429,14 +427,23 @@ function PopupApp() {
             <div className="popup-grid">
               <label className="popup-label">
                 <span>Invite code</span>
-                <input
-                  className="popup-input"
-                  type="text"
-                  inputMode="numeric"
-                  value={inviteCode}
-                  onChange={(event) => void handleInviteCodeChange(event.target.value)}
-                  placeholder="4 digits"
-                />
+                <div className="popup-pin-input">
+                  <input
+                    className="popup-pin-input__field"
+                    type="text"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    maxLength={4}
+                    value={inviteCode}
+                    onChange={(event) => void handleInviteCodeChange(event.target.value)}
+                    aria-label="4-digit invite code"
+                  />
+                  {Array.from({ length: 4 }, (_, index) => (
+                    <div key={index} className="popup-pin-input__digit" aria-hidden="true">
+                      {inviteCode[index] ?? ""}
+                    </div>
+                  ))}
+                </div>
               </label>
 
               <div className="popup-actions popup-actions--stack">

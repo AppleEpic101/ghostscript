@@ -201,6 +201,44 @@ textarea {
   gap: 12px;
 }
 
+.popup-pin-input {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.popup-pin-input:focus-within .popup-pin-input__digit {
+  border-color: #5865f2;
+  box-shadow: 0 0 0 2px rgba(88, 101, 242, 0.35);
+}
+
+.popup-pin-input__field {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: text;
+}
+
+.popup-pin-input__field:focus {
+  outline: none;
+}
+
+.popup-pin-input__digit {
+  display: grid;
+  place-items: center;
+  min-height: 68px;
+  border: 1px solid #383a40;
+  border-radius: 8px;
+  background: #1e1f22;
+  color: #ffffff;
+  font-size: 30px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
 .popup-actions {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -298,8 +336,8 @@ textarea {
 
 .popup-lobby-code {
   display: inline-flex;
-  justify-self: start;
-  align-items: flex-start;
+  justify-self: center;
+  align-items: center;
   flex-direction: column;
   gap: 4px;
   border: 1px solid #5865f2;
@@ -308,7 +346,7 @@ textarea {
   background: #1e1f22;
   color: #5865f2;
   cursor: pointer;
-  text-align: left;
+  text-align: center;
   transition: background-color 120ms ease;
 }
 
