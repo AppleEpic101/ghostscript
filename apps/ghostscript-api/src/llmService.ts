@@ -10,7 +10,6 @@ import {
   encodeBitstringAsRankedText,
   getTransportMetadata,
   resolveEncodingConfig,
-  TransportBudgetExceededError,
 } from "./transport";
 
 type BridgeMode = "rank-local" | "passthrough";
@@ -60,21 +59,12 @@ export class LlmService {
     const config = resolveEncodingConfig(body.config);
 
     if (mode === "rank-local") {
-      let visibleText: string;
-      try {
-        visibleText = encodeBitstringAsRankedText({
-          prompt: body.prompt,
-          bitstring: body.bitstring,
-          wordTarget: body.wordTarget,
-          config,
-        });
-      } catch (error) {
-        if (error instanceof TransportBudgetExceededError) {
-          throw new ApiError(400, error.message);
-        }
-
-        throw error;
-      }
+      const visibleText = encodeBitstringAsRankedText({
+        prompt: body.prompt,
+        bitstring: body.bitstring,
+        wordTarget: body.wordTarget,
+        config,
+      });
 
       return {
         visibleText,

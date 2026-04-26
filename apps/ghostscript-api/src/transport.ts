@@ -3,8 +3,6 @@ import { DEFAULT_TRANSPORT_CONFIG_ID, type LLMEncodingConfig } from "@ghostscrip
 const TOKEN_PATTERN = /[A-Za-z0-9]+(?:'[A-Za-z0-9]+)?|[.,!?;:]/g;
 const PUNCTUATION_TOKENS = new Set([".", ",", "!", "?", ";", ":"]);
 const SENTENCE_END_TOKENS = new Set([".", "!", "?"]);
-const WORD_TARGET_TO_TOKEN_BUDGET_MULTIPLIER = 2.5;
-const TOKEN_BUDGET_PADDING = 8;
 const DEFAULT_ENCODING_CONFIG: LLMEncodingConfig = {
   configId: DEFAULT_TRANSPORT_CONFIG_ID,
   provider: "ghostscript-bridge",
@@ -143,8 +141,6 @@ interface TransportMetadata {
   tokenizerId: string;
 }
 
-export class TransportBudgetExceededError extends Error {}
-
 export function resolveEncodingConfig(config: LLMEncodingConfig | undefined): LLMEncodingConfig {
   if (!config) {
     return DEFAULT_ENCODING_CONFIG;
@@ -190,17 +186,9 @@ export function encodeBitstringAsRankedText(params: {
       throw new Error("Rank-selection encoding exceeded the maximum token budget for this payload.");
     }
 
-    if (adapter.isTokenBudgetExceeded(outputTokenIds)) {
-      throw new TransportBudgetExceededError(
-        `Ghostscript could not fit this payload into the requested cover-text budget (${params.wordTarget} words).`,
-      );
-    }
-
     const pool = adapter.buildCandidatePool(outputTokenIds);
     if (pool.length === 0) {
-      throw new TransportBudgetExceededError(
-        `Ghostscript could not fit this payload into the requested cover-text budget (${params.wordTarget} words).`,
-      );
+      throw new Error("Rank-selection encoding could not construct a non-empty candidate pool.");
     }
 
     const encodedWidth = getStepBitWidth(pool.length, config.bitsPerStep);
@@ -313,7 +301,6 @@ function fail(message: string): never {
 class PromptConditionedLocalTransportAdapter {
   private readonly promptTokenIds: number[];
   private readonly config: LLMEncodingConfig;
-  private readonly maxTokenCount: number;
   private readonly vocabulary: string[];
   private readonly tokenToId = new Map<string, number>();
   private readonly topicTokenIds = new Set<number>();
@@ -324,17 +311,8 @@ class PromptConditionedLocalTransportAdapter {
   private readonly trigramTotals = new Map<string, number>();
   private totalObservedTokens = 0;
 
-  constructor(prompt: string, wordTarget: number | undefined, config: LLMEncodingConfig) {
+  constructor(prompt: string, _wordTarget: number | undefined, config: LLMEncodingConfig) {
     this.config = config;
-    if (typeof wordTarget === "number" && Number.isFinite(wordTarget) && wordTarget > 0) {
-      const normalizedWordTarget = Math.max(10, Math.round(wordTarget));
-      this.maxTokenCount = Math.max(
-        normalizedWordTarget + 4,
-        Math.ceil(normalizedWordTarget * WORD_TARGET_TO_TOKEN_BUDGET_MULTIPLIER) + TOKEN_BUDGET_PADDING,
-      );
-    } else {
-      this.maxTokenCount = Number.POSITIVE_INFINITY;
-    }
 
     const promptTokens = extractRawTokens(prompt);
     const baseVocabulary = Array.from(new Set([...extractRawTokens(BASE_CORPUS.join(" ")), ...PUNCTUATION_TOKENS]));
@@ -432,10 +410,6 @@ class PromptConditionedLocalTransportAdapter {
     }
 
     return this.detokenize(tokenIds) === text.trim() ? tokenIds : null;
-  }
-
-  isTokenBudgetExceeded(outputTokenIds: number[]) {
-    return outputTokenIds.length >= this.maxTokenCount;
   }
 
   private iterAllowedTokenIds(context: number[], outputTokenIds: number[]) {

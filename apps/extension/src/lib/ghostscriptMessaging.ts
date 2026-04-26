@@ -37,9 +37,6 @@ import { readExtensionState } from "./pairingStore";
 import { filterPromptMessages } from "./promptHistory";
 
 const DISCORD_MAX_MESSAGE_LENGTH = 2000;
-const DISCORD_SAFE_COVER_TEXT_LENGTH = 1900;
-const TRANSPORT_BUDGET_ERROR_MESSAGE =
-  "Ghostscript could not fit this encrypted message into the cover-text transport budget. Try a shorter message or send after more normal chat context.";
 
 export async function sendEncryptedGhostscriptMessage(params: {
   plaintext: string;
@@ -121,10 +118,6 @@ export async function sendEncryptedGhostscriptMessage(params: {
       transportProtocolVersion: getTransportProtocolVersion(),
       promptFingerprint: await fingerprintTransportPrompt(prompt),
     };
-
-    if (visibleText.length > DISCORD_SAFE_COVER_TEXT_LENGTH) {
-      throw new Error(TRANSPORT_BUDGET_ERROR_MESSAGE);
-    }
 
     if (visibleText.length > DISCORD_MAX_MESSAGE_LENGTH) {
       throw new Error(

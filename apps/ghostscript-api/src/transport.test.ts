@@ -5,7 +5,6 @@ import {
   __internal_createAdapter,
   decodeRankedTextToBitstring,
   encodeBitstringAsRankedText,
-  TransportBudgetExceededError,
 } from "./transport";
 
 const PROMPT = [
@@ -117,10 +116,15 @@ test("decode returns null when the visible text does not match a valid candidate
   assert.equal(decoded, null);
 });
 
-test("rank transport respects the requested word budget", () => {
+test("rank transport treats wordTarget as advisory only", () => {
   const bitstring = "000000000000000000000000000100000110100001101001";
-  const oversizedBitstring = `${bitstring}${bitstring}${bitstring}${bitstring}${bitstring}${bitstring}`;
   const config = buildConfig();
+  const shortTargetVisibleText = encodeBitstringAsRankedText({
+    prompt: PROMPT,
+    bitstring,
+    wordTarget: 3,
+    config,
+  });
   const longTargetVisibleText = encodeBitstringAsRankedText({
     prompt: PROMPT,
     bitstring,
@@ -131,20 +135,18 @@ test("rank transport respects the requested word budget", () => {
   assert.equal(
     decodeRankedTextToBitstring({
       prompt: PROMPT,
-      visibleText: longTargetVisibleText,
+      visibleText: shortTargetVisibleText,
       config,
     }),
     bitstring,
   );
 
-  assert.throws(
-    () =>
-      encodeBitstringAsRankedText({
-        prompt: PROMPT,
-        bitstring: oversizedBitstring,
-        wordTarget: 3,
-        config,
-      }),
-    (error: unknown) => error instanceof TransportBudgetExceededError,
+  assert.equal(
+    decodeRankedTextToBitstring({
+      prompt: PROMPT,
+      visibleText: longTargetVisibleText,
+      config,
+    }),
+    bitstring,
   );
 });

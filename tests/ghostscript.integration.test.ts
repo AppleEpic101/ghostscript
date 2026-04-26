@@ -65,7 +65,7 @@ test("encrypted envelopes survive rank-selection transport end to end", async ()
   assert.equal(plaintext, "Okay, station works.");
 });
 
-test("repeated short sends stay under the safe budget instead of compounding prior cover text", async () => {
+test("repeated short sends stay under Discord's hard cap instead of compounding prior cover text", async () => {
   const alice = await generateIdentityBundle();
   const bob = await generateIdentityBundle();
   const aliceMaterial: SessionCryptoMaterial = {
@@ -110,7 +110,10 @@ test("repeated short sends stay under the safe budget instead of compounding pri
     });
 
     lengths.push(visibleText.length);
-    assert.ok(visibleText.length < 1900, `send ${index} exceeded the safe budget with ${visibleText.length} chars`);
+    assert.ok(
+      visibleText.length <= 2000,
+      `send ${index} exceeded Discord's hard cap with ${visibleText.length} chars`,
+    );
 
     conversation.confirmedEncodedMessages.push({
       visibleText,
