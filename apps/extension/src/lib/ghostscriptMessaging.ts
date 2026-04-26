@@ -7,6 +7,7 @@ import {
   collectTwoPartyMessages,
   getCurrentDiscordThreadId,
   hideDiscordMessageLocally,
+  renderDebugOverlayOnAllMessages,
   renderDecodedMessageOverlay,
   sendTextThroughDiscord,
 } from "./discord";
@@ -149,6 +150,7 @@ export async function syncGhostscriptConversation(params: {
     params.partnerUsername,
     getPairingEstablishedAt(params.pairing),
   );
+  renderDebugOverlayOnAllMessages(params.partnerUsername);
   await cacheConversationMessages(threadId, messages);
 
   await reconcilePendingSend(messages);

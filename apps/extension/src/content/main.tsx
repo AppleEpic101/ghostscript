@@ -9,7 +9,7 @@ import overlayStyles from "./styles.css?inline";
 
 const COMPOSER_OVERLAY_HOST_ID = "ghostscript-composer-overlay-root";
 const CONVERSATION_SPACER_ID = "ghostscript-conversation-spacer";
-const DISCORD_ME_ROUTE_PREFIX = "/channels/@me";
+const DISCORD_CHANNELS_ROUTE_PREFIX = "/channels";
 const COMPOSER_OVERLAY_TABBAR_HEIGHT = 42;
 const COMPOSER_OVERLAY_MIN_HEIGHT = 128;
 const COMPOSER_OVERLAY_CONVERSATION_GAP = 14;
@@ -545,16 +545,17 @@ function getCurrentRoute() {
   return `${window.location.pathname}${window.location.search}${window.location.hash}`;
 }
 
-function isDiscordMeRoute() {
-  return (
-    window.location.hostname === "discord.com" &&
-    (window.location.pathname === DISCORD_ME_ROUTE_PREFIX ||
-      window.location.pathname.startsWith(`${DISCORD_ME_ROUTE_PREFIX}/`))
-  );
+function isDiscordChannelRoute() {
+  if (window.location.hostname !== "discord.com") {
+    return false;
+  }
+
+  const pathSegments = window.location.pathname.split("/").filter(Boolean);
+  return pathSegments[0] === DISCORD_CHANNELS_ROUTE_PREFIX.slice(1) && pathSegments.length >= 3;
 }
 
 async function shouldShowOverlay() {
-  if (!isDiscordMeRoute()) {
+  if (!isDiscordChannelRoute()) {
     return false;
   }
 

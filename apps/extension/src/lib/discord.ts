@@ -333,6 +333,50 @@ export function renderDecodedMessageOverlay(params: {
   }
 }
 
+export function renderDebugOverlayOnAllMessages(partnerUsername: string) {
+  const messageElements = findMessageContainers();
+  let overlayCount = 0;
+
+  for (const messageElement of messageElements) {
+    const discordMessageId = extractMessageId(messageElement);
+    if (!discordMessageId) {
+      continue;
+    }
+
+    const contentElement = findMessageContentElement(messageElement);
+    const authorUsername = extractAuthorUsername(messageElement) || "Unknown author";
+    const normalizedAuthor = normalizeUsername(authorUsername);
+    const normalizedPartner = normalizeUsername(partnerUsername);
+    if (!usernamesProbablyMatch(normalizedAuthor, normalizedPartner)) {
+      continue;
+    }
+
+    const visibleText = extractMessageText(messageElement) || "(no text found)";
+    const overlayAnchor = contentElement?.parentElement ?? messageElement;
+    let overlay = overlayAnchor.querySelector<HTMLElement>("[data-ghostscript-debug-overlay]");
+    if (!overlay) {
+      overlay = document.createElement("div");
+      overlay.dataset.ghostscriptDebugOverlay = "true";
+      overlay.className = "ghostscript-decoded-overlay";
+      overlayAnchor.appendChild(overlay);
+    }
+
+    overlay.dataset.ghostscriptMessageId = discordMessageId;
+    overlay.innerHTML = `
+      <div class="ghostscript-decoded-overlay__header">
+        <span class="ghostscript-decoded-overlay__badge">Ghostscript Debug</span>
+        <span class="ghostscript-decoded-overlay__state">Attached</span>
+      </div>
+      <p class="ghostscript-decoded-overlay__body">Message ${discordMessageId} · ${authorUsername}\n${visibleText}</p>
+    `;
+    overlayCount += 1;
+  }
+
+  console.info("[Ghostscript] Debug overlay attached to messages:", {
+    overlayCount,
+  });
+}
+
 function findMessageContainers() {
   return MESSAGE_CONTAINER_SELECTORS.flatMap((selector) =>
     Array.from(document.querySelectorAll<HTMLElement>(selector)),
