@@ -282,6 +282,9 @@ function PopupApp() {
 
   return (
     <div className="popup-shell">
+      <div className="popup-brand">
+        <img className="popup-brand__logo" src="/icons/ghostscript-128.png" alt="Ghostscript logo" />
+      </div>
       <p className="popup-eyebrow">Ghostscript</p>
       <h1>Pair for concealed Discord messaging</h1>
       <p className="popup-copy">

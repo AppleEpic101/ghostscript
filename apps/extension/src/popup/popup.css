@@ -24,6 +24,19 @@ textarea {
   padding: 18px;
 }
 
+.popup-brand {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 10px;
+}
+
+.popup-brand__logo {
+  display: block;
+  width: 72px;
+  height: 72px;
+  object-fit: contain;
+}
+
 .popup-shell--wide {
   max-width: 720px;
   margin: 0 auto;
@@ -32,6 +45,7 @@ textarea {
 
 .popup-eyebrow {
   margin: 0 0 6px;
+  text-align: center;
   text-transform: uppercase;
   letter-spacing: 0.14em;
   font-size: 11px;
@@ -44,6 +58,7 @@ textarea {
   font-size: 26px;
   line-height: 1.05;
   color: #ffffff;
+  text-align: center;
 }
 
 .popup-copy {
@@ -51,6 +66,7 @@ textarea {
   color: #b5bac1;
   font-size: 14px;
   line-height: 1.45;
+  text-align: center;
 }
 
 .popup-copy--tight {
