@@ -6,6 +6,11 @@ import {
   unwrapIdentityBundle,
   wrapIdentityBundle,
 } from "./crypto";
+import {
+  normalizeDecodedMessageActiveView,
+  type DecodedGhostscriptMessageView,
+  type LegacyDecodedGhostscriptMessageView,
+} from "./decodedMessages";
 import { readStorageValue, writeStorageValue } from "./storage";
 
 const GHOSTSCRIPT_STATE_STORAGE_KEY = "ghostscript-extension-ghostscript-state";
@@ -20,8 +25,6 @@ export interface PendingSendState {
   msgId: number;
   error: string | null;
 }
-
-export type DecodedGhostscriptMessageView = "decrypted" | "original";
 
 export interface DecodedGhostscriptMessageState {
   status: "decoded" | "tampered";
@@ -250,7 +253,7 @@ function normalizeConversationState(conversation: GhostscriptConversationState):
         discordMessageId,
         {
           ...message,
-          activeView: message.activeView ?? "decrypted",
+          activeView: normalizeDecodedMessageActiveView(message.activeView as LegacyDecodedGhostscriptMessageView),
           encodedMessage: message.encodedMessage ?? null,
         },
       ]),

@@ -306,6 +306,14 @@
   cursor: text;
 }
 
+.ghostscript-decoded-overlay__body--cover {
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(215, 187, 255, 0.18);
+  box-shadow: inset 0 0 0 1px rgba(222, 199, 255, 0.28);
+  color: #f6efff;
+}
+
 .ghostscript-decoded-overlay__body--tampered {
   color: #ffe3e4;
 }

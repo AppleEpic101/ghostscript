@@ -1,5 +1,5 @@
 import type { GhostscriptThreadMessage } from "@ghostscript/shared";
-import type { DecodedGhostscriptMessageView } from "./ghostscriptState";
+import { getDecodedMessageBody, type DecodedGhostscriptMessageView } from "./decodedMessages";
 import { setDecodedMessageActiveView } from "./ghostscriptState";
 
 const MESSAGE_CONTAINER_SELECTORS = [
@@ -232,11 +232,11 @@ export function renderDecodedMessageOverlay(params: {
         <button
           type="button"
           class="ghostscript-decoded-overlay__toggle-button"
-          data-ghostscript-view="original"
+          data-ghostscript-view="cover"
           role="tab"
-          aria-selected="${params.activeView === "original"}"
+          aria-selected="${params.activeView === "cover"}"
         >
-          Original
+          Cover text
         </button>
       </div>
     </div>
@@ -245,7 +245,13 @@ export function renderDecodedMessageOverlay(params: {
 
   const body = overlay.querySelector<HTMLElement>("[data-ghostscript-decoded-overlay-body]");
   if (body) {
-    body.textContent = params.activeView === "original" ? params.visibleText : params.plaintext ?? "";
+    const presentation = getDecodedMessageBody({
+      activeView: params.activeView,
+      plaintext: params.plaintext,
+      visibleText: params.visibleText,
+    });
+    body.textContent = presentation.text;
+    body.classList.toggle("ghostscript-decoded-overlay__body--cover", presentation.isCoverText);
   }
 
   for (const button of overlay.querySelectorAll<HTMLButtonElement>("[data-ghostscript-view]")) {
@@ -254,7 +260,7 @@ export function renderDecodedMessageOverlay(params: {
     button.classList.toggle("ghostscript-decoded-overlay__toggle-button--active", isActive);
     button.tabIndex = isActive ? 0 : -1;
     button.onclick = () => {
-      if (nextView !== "decrypted" && nextView !== "original") {
+      if (nextView !== "decrypted" && nextView !== "cover") {
         return;
       }
 

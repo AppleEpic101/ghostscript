@@ -1,6 +1,7 @@
 import type { ActivePairingState, GhostscriptThreadMessage } from "@ghostscript/shared";
-import { deserializeEnvelopeFromBitstring, estimateWordTarget, serializeEnvelopeToBitstring } from "./bitstream";
+import { estimateWordTarget, serializeEnvelopeToBitstring } from "./bitstream";
 import { decryptMessageEnvelope, encryptMessageEnvelope, type SessionCryptoMaterial } from "./crypto";
+import { buildDecodeHistoryWindows } from "./decodedMessages";
 import {
   buildBoundedConversationWindow,
   collectTwoPartyMessages,
@@ -9,6 +10,7 @@ import {
   renderDecodedMessageOverlay,
   sendTextThroughDiscord,
 } from "./discord";
+import { attemptIncomingMessageDecode } from "./incomingMessageDecode";
 import {
   cacheConversationMessages,
   getLocalIdentityBundle,
@@ -220,82 +222,62 @@ async function decodeIncomingMessages(
     const cachedPriorMessages = conversation.cachedMessages.filter((candidate) => compareMessageOrder(candidate, message) < 0);
     const visibleHistoryWindow = buildBoundedConversationWindow(priorMessages);
     const cachedHistoryWindow = buildBoundedConversationWindow(cachedPriorMessages);
+    const historyWindows = buildDecodeHistoryWindows(visibleHistoryWindow, cachedHistoryWindow);
 
-    if (!areConversationWindowsEqual(visibleHistoryWindow, cachedHistoryWindow)) {
+    if (historyWindows.length === 0) {
+      continue;
+    }
+    const decodeResult = await attemptIncomingMessageDecode({
+      visibleText: message.text,
+      coverTopic: params.pairing.defaultCoverTopic ?? "general chat",
+      historyWindows,
+      material,
+      encodingConfigs: getSupportedEncodingConfigs(),
+      defaultConfigId: getDefaultEncodingConfig().configId,
+      decodeBitstring: decodeCoverTextToBitstring,
+      decryptEnvelope: decryptMessageEnvelope,
+      fingerprintPrompt: fingerprintTransportPrompt,
+    });
+
+    if (!decodeResult) {
       continue;
     }
 
-    const prompt = buildConversationPrompt({
-      coverTopic: params.pairing.defaultCoverTopic ?? "general chat",
-      messages: cachedHistoryWindow,
-    });
-    const promptFingerprint = await fingerprintTransportPrompt(prompt);
-    let decodedMessage = false;
-    let sawFramedPayload = false;
-
-    for (const encodingConfig of getSupportedEncodingConfigs()) {
-      let bitstring: string | null = null;
-      try {
-        bitstring = await decodeCoverTextToBitstring({
+    if (decodeResult.status === "decoded") {
+      await storeDecodedMessage(threadId, message.discordMessageId, {
+        status: "decoded",
+        plaintext: decodeResult.plaintext,
+        visibleText: message.text,
+        encodedMessage: {
           visibleText: message.text,
-          prompt,
-          config: encodingConfig,
-        });
-      } catch {
-        continue;
-      }
-
-      if (!bitstring) {
-        continue;
-      }
-
-      try {
-        const envelope = deserializeEnvelopeFromBitstring(bitstring);
-        const plaintext = await decryptMessageEnvelope(envelope, material);
-        await storeDecodedMessage(threadId, message.discordMessageId, {
-          status: "decoded",
-          plaintext,
-          visibleText: message.text,
-          encodedMessage: {
-            visibleText: message.text,
-            configId: encodingConfig.configId,
-            transportProtocolVersion: getTransportProtocolVersion(),
-            promptFingerprint,
-          },
-          processedAt: new Date().toISOString(),
-          activeView: "decrypted",
-        });
-        renderDecodedMessageOverlay({
-          threadId,
-          discordMessageId: message.discordMessageId,
-          status: "decoded",
-          plaintext,
-          visibleText: message.text,
-          activeView: "decrypted",
-        });
-        decodedMessage = true;
-        sawFramedPayload = false;
-        break;
-      } catch {
-        try {
-          deserializeEnvelopeFromBitstring(bitstring);
-          sawFramedPayload = true;
-        } catch {
-          continue;
-        }
-      }
+          configId: decodeResult.configId,
+          transportProtocolVersion: getTransportProtocolVersion(),
+          promptFingerprint: decodeResult.promptFingerprint,
+        },
+        processedAt: new Date().toISOString(),
+        activeView: "decrypted",
+      });
+      renderDecodedMessageOverlay({
+        threadId,
+        discordMessageId: message.discordMessageId,
+        status: "decoded",
+        plaintext: decodeResult.plaintext,
+        visibleText: message.text,
+        activeView: "decrypted",
+      });
+      continue;
     }
 
-    if (!decodedMessage && sawFramedPayload) {
+    if (decodeResult.status === "tampered") {
       await storeDecodedMessage(threadId, message.discordMessageId, {
         status: "tampered",
         plaintext: null,
         visibleText: message.text,
         encodedMessage: {
           visibleText: message.text,
-          configId: getDefaultEncodingConfig().configId,
+          configId: decodeResult.configId,
           transportProtocolVersion: getTransportProtocolVersion(),
-          promptFingerprint,
+          promptFingerprint: decodeResult.promptFingerprint,
         },
         processedAt: new Date().toISOString(),
         activeView: "decrypted",
@@ -392,20 +374,4 @@ function compareMessageOrder(left: GhostscriptThreadMessage, right: GhostscriptT
 
 function getPairingEstablishedAt(pairing: ActivePairingState) {
   return pairing.session.joinedAt ?? pairing.session.createdAt;
-}
-
-function areConversationWindowsEqual(left: GhostscriptThreadMessage[], right: GhostscriptThreadMessage[]) {
-  if (left.length !== right.length) {
-    return false;
-  }
-
-  return left.every((message, index) => {
-    const candidate = right[index];
-    return (
-      candidate !== undefined &&
-      message.discordMessageId === candidate.discordMessageId &&
-      message.authorUsername === candidate.authorUsername &&
-      message.text === candidate.text
-    );
-  });
 }
