@@ -44,10 +44,8 @@ const server = createServer(async (request, response) => {
         source: "api",
         event: "encode-route",
         details: {
-          promptLength: body.prompt.length,
-          bitstringLength: body.bitstring.length,
-          wordTarget: body.wordTarget,
-          configId: body.config?.configId ?? "default",
+          coverTopic: body.coverTopic,
+          recentMessageCount: body.recentMessages?.length ?? 0,
         },
       }));
       sendJson(response, 200, await llmService.encode(body));
@@ -61,10 +59,8 @@ const server = createServer(async (request, response) => {
         source: "api",
         event: "decode-route",
         details: {
-          promptLength: body.prompt.length,
           visibleText: body.visibleText,
           visibleTextLength: body.visibleText.length,
-          configId: body.config?.configId ?? "default",
         },
       }));
       sendJson(response, 200, await llmService.decode(body));

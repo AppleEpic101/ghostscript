@@ -1,66 +1,21 @@
-import {
-  DEFAULT_TRANSPORT_CONFIG_ID,
-  SUPPORTED_TRANSPORT_CONFIG_IDS,
-  TRANSPORT_PROTOCOL_VERSION,
-  type ConversationContextWindow,
-  type GhostscriptThreadMessage,
-  type LLMEncodingConfig,
-  type SupportedTransportConfigId,
-} from "@ghostscript/shared";
+import { TRANSPORT_PROTOCOL_VERSION, type ConversationContextWindow, type GhostscriptThreadMessage } from "@ghostscript/shared";
 import { getGhostscriptApiBaseUrl } from "./apiBaseUrl";
 import { logGhostscriptDebug } from "./debugLog";
-import { buildConversationPrompt as buildCanonicalConversationPrompt } from "./promptBuilder";
 
-const DEFAULT_ENCODING_CONFIG: LLMEncodingConfig = {
-  configId: DEFAULT_TRANSPORT_CONFIG_ID,
-  provider: "ghostscript-bridge",
-  modelId: "xenova-distilgpt2-v1",
-  tokenizerId: "gpt2-tokenizer-v1",
-  transportBackend: "local-gpt2-top4-v1",
-  bitsPerStep: 2,
-  excludedTokenSet: ["<|endoftext|>", "<s>", "</s>"],
-  fallbackStrategy: "reduce-bits",
-  tieBreakRule: "token-id-ascending",
-  payloadTerminationStrategy: "length-header",
-  contextTruncationStrategy: "tail",
-  maxContextTokens: 512,
-};
-
-interface EncodeRequest {
-  prompt: string;
-  bitstring: string;
-  wordTarget: number;
-  config: LLMEncodingConfig;
-}
-
-interface EncodeResponse {
-  visibleText: string;
-}
-
-interface DecodeResponse {
-  bitstring: string | null;
-}
-
-export interface DecodeVisibleTextParams {
-  visibleText: string;
-  prompt: string;
-  config: LLMEncodingConfig;
-}
-
-export function getDefaultEncodingConfig() {
-  return DEFAULT_ENCODING_CONFIG;
-}
-
-export function getSupportedEncodingConfigs() {
-  return SUPPORTED_TRANSPORT_CONFIG_IDS.map((configId) => getEncodingConfigById(configId));
-}
-
-export function buildConversationPrompt(params: {
+interface GenerateCoverTextRequest {
   coverTopic: string;
+  recentMessages: string[];
+}
+
+interface GenerateCoverTextResponse {
+  visibleText: string;
+  generator: string;
+  model: string;
+}
+
+export function buildCoverTextMessages(params: {
   messages?: GhostscriptThreadMessage[];
   contextWindow?: ConversationContextWindow;
-  wordTarget?: number;
-  replyTurn?: string;
 }) {
   const contextWindow = params.contextWindow ?? {
     threadId: params.messages?.[0]?.threadId ?? "",
@@ -70,70 +25,38 @@ export function buildConversationPrompt(params: {
     maxChars: 3200,
   };
 
-  return buildCanonicalConversationPrompt({
+  return contextWindow.messages
+    .slice(-4)
+    .map((message) => `${message.authorUsername}: ${message.text.replace(/\s+/g, " ").trim()}`)
+    .filter(Boolean);
+}
+
+export async function generateCoverText(params: GenerateCoverTextRequest) {
+  logGhostscriptDebug("llm-bridge", "cover-text-request-start", {
     coverTopic: params.coverTopic,
-    contextWindow,
-    wordTarget: params.wordTarget ?? 16,
-    replyTurn: params.replyTurn ?? "",
-  });
-}
-
-export async function encodeBitstringAsCoverText(params: EncodeRequest) {
-  logGhostscriptDebug("llm-bridge", "encode-request-start", {
-    configId: params.config.configId,
-    prompt: params.prompt,
-    promptLength: params.prompt.length,
-    bitstringLength: params.bitstring.length,
-    wordTarget: params.wordTarget,
-  });
-  const response = await requestBridgeJson<EncodeResponse>("/encode", params);
-  logGhostscriptDebug("llm-bridge", "encode-request-complete", {
-    configId: params.config.configId,
-    visibleText: response.visibleText,
-    visibleTextLength: response.visibleText.length,
-  });
-  return response.visibleText.trim();
-}
-
-export async function decodeCoverTextToBitstring(params: DecodeVisibleTextParams) {
-  logGhostscriptDebug("llm-bridge", "decode-request-start", {
-    configId: params.config.configId,
-    prompt: params.prompt,
-    promptLength: params.prompt.length,
-    visibleText: params.visibleText,
-    visibleTextLength: params.visibleText.length,
-  });
-  const response = await requestBridgeJson<DecodeResponse>("/decode", {
-    visibleText: params.visibleText,
-    prompt: params.prompt,
-    config: params.config,
+    recentMessageCount: params.recentMessages.length,
   });
 
-  logGhostscriptDebug("llm-bridge", "decode-request-complete", {
-    configId: params.config.configId,
-    bitstringLength: response.bitstring?.length ?? 0,
-    recoveredBitstring: response.bitstring,
+  const response = await requestBridgeJson<GenerateCoverTextResponse>("/encode", params);
+  const visibleText = response.visibleText.trim();
+
+  logGhostscriptDebug("llm-bridge", "cover-text-request-complete", {
+    coverTopic: params.coverTopic,
+    visibleText,
+    visibleTextLength: visibleText.length,
+    generator: response.generator,
+    model: response.model,
   });
 
-  return response.bitstring;
-}
-
-export async function fingerprintTransportPrompt(prompt: string) {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(prompt));
-  return Array.from(new Uint8Array(digest).slice(0, 12), (value) => value.toString(16).padStart(2, "0")).join("");
+  return {
+    visibleText,
+    generator: response.generator,
+    model: response.model,
+  };
 }
 
 export function getTransportProtocolVersion() {
   return TRANSPORT_PROTOCOL_VERSION;
-}
-
-function getEncodingConfigById(configId: SupportedTransportConfigId) {
-  switch (configId) {
-    case DEFAULT_TRANSPORT_CONFIG_ID:
-      return DEFAULT_ENCODING_CONFIG;
-  }
-
-  throw new Error(`Unsupported Ghostscript transport config: ${configId}`);
 }
 
 async function requestBridgeJson<T>(path: string, body: unknown): Promise<T> {

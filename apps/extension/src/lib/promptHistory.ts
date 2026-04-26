@@ -48,6 +48,9 @@ function addEncodedVisibleText(store: Set<string>, message: EncodedGhostscriptMe
   if (message?.visibleText) {
     store.add(normalizeMessageText(message.visibleText));
   }
+  if (message?.submittedText) {
+    store.add(normalizeMessageText(message.submittedText));
+  }
 }
 
 function normalizeMessageText(value: string) {

@@ -1,181 +1,114 @@
 import OpenAI from "openai";
-import {
-  SUPPORTED_TRANSPORT_CONFIG_IDS,
-  TRANSPORT_PROTOCOL_VERSION,
-  type LLMEncodingConfig,
-} from "@ghostscript/shared";
+import { TRANSPORT_PROTOCOL_VERSION } from "@ghostscript/shared";
 import { ApiError } from "./service";
-import {
-  decodeRankedTextToBitstring,
-  encodeBitstringAsRankedText,
-  getTransportMetadata,
-  resolveEncodingConfig,
-} from "./transport";
-
-type BridgeMode = "rank-local" | "passthrough";
 
 export interface EncodeRequestBody {
-  prompt: string;
-  bitstring: string;
-  wordTarget: number;
-  config?: LLMEncodingConfig;
+  coverTopic: string;
+  recentMessages?: string[];
 }
 
 export interface DecodeRequestBody {
-  prompt: string;
   visibleText: string;
-  config?: LLMEncodingConfig;
 }
 
-const mode = getBridgeMode(process.env.LLM_BRIDGE_MODE);
 const passthroughModel = process.env.OPENAI_MODEL?.trim() || "gpt-4.1-mini";
 const openAiApiKey = process.env.OPENAI_API_KEY?.trim() || "";
 const openai = openAiApiKey ? new OpenAI({ apiKey: openAiApiKey }) : null;
-const PASSTHROUGH_MIN_WORD_TARGET = 8;
-const PASSTHROUGH_MAX_WORD_TARGET = 28;
-const PASSTHROUGH_MIN_CHAR_TARGET = 70;
-const PASSTHROUGH_MAX_CHAR_TARGET = 220;
-const MAX_PROMPT_CHARS = 12_000;
-const MAX_VISIBLE_TEXT_CHARS = 4_000;
-const MAX_BITSTRING_LENGTH = 131_072;
+const MAX_TOPIC_CHARS = 200;
+const MAX_RECENT_MESSAGES = 6;
+const MAX_RECENT_MESSAGE_CHARS = 240;
 
 export class LlmService {
   getHealth() {
-    const metadata = getTransportMetadata(undefined);
-
     return {
-      mode,
-      model: mode === "passthrough" ? passthroughModel : metadata.modelId,
-      tokenizerId: metadata.tokenizerId,
-      backend: metadata.backend,
+      mode: openai ? "openai-cover-text" : "template-cover-text",
+      model: passthroughModel,
       transportProtocolVersion: TRANSPORT_PROTOCOL_VERSION,
-      supportedConfigIds: SUPPORTED_TRANSPORT_CONFIG_IDS,
       configured: Boolean(openai),
+      decodeSupported: false,
     };
   }
 
   async encode(body: EncodeRequestBody) {
     validateEncodeRequest(body);
-    const config = resolveEncodingConfig(body.config);
+    const recentMessages = sanitizeRecentMessages(body.recentMessages);
 
-    if (mode === "rank-local") {
-      const visibleText = await encodeBitstringAsRankedText({
-        prompt: body.prompt,
-        bitstring: body.bitstring,
-        wordTarget: body.wordTarget,
-        config,
-      });
-
+    if (!openai) {
       return {
-        visibleText,
-        mode,
-        configId: config.configId,
-        transportProtocolVersion: TRANSPORT_PROTOCOL_VERSION,
+        visibleText: buildTemplateCoverText(body.coverTopic, recentMessages),
+        generator: "template-local",
+        model: "template-local",
       };
     }
 
-    const client = requireOpenAI();
-    const passthroughWordTarget = clampWordTarget(body.wordTarget);
-    const maxCharacterTarget = clampCharacterTarget(passthroughWordTarget);
-    const prompt = buildPassthroughPrompt(body.prompt, passthroughWordTarget, maxCharacterTarget);
-    const response = await createPassthroughResponse(client, prompt, passthroughWordTarget);
-    let visibleText = extractResponseText(response).trim();
+    const response = await openai.responses.create({
+      model: passthroughModel,
+      input: buildCoverTextPrompt(body.coverTopic, recentMessages),
+      max_output_tokens: 96,
+      truncation: "auto",
+      store: false,
+    });
 
-    if (!visibleText) {
-      const retryResponse = await createPassthroughResponse(
-        client,
-        buildPassthroughRetryPrompt(body.prompt, maxCharacterTarget),
-        Math.min(passthroughWordTarget, 12),
-      );
-      visibleText = extractResponseText(retryResponse).trim();
-    }
-
+    const visibleText = extractResponseText(response).trim();
     if (!visibleText) {
       throw new ApiError(502, "OpenAI returned an empty cover-text response.");
     }
 
     return {
       visibleText,
-      mode,
-      note: "Passthrough mode ignores the encrypted bitstring and is only for local integration testing.",
+      generator: "openai",
+      model: passthroughModel,
     };
   }
 
-  async decode(body: DecodeRequestBody) {
-    validateDecodeRequest(body);
-    const config = resolveEncodingConfig(body.config);
-
-    if (mode === "rank-local") {
-      return {
-        bitstring: await decodeRankedTextToBitstring({
-          prompt: body.prompt,
-          visibleText: body.visibleText,
-          config,
-        }),
-        mode,
-        configId: config.configId,
-        transportProtocolVersion: TRANSPORT_PROTOCOL_VERSION,
-      };
-    }
-
-    return {
-      bitstring: null,
-      mode,
-      note: "Passthrough mode cannot recover a payload bitstring.",
-    };
+  async decode(_body: DecodeRequestBody) {
+    throw new ApiError(410, "Ghostscript no longer decodes transport payloads through the API.");
   }
 }
 
-function buildPassthroughPrompt(prompt: string, wordTarget: number, maxCharacterTarget: number) {
+function validateEncodeRequest(body: EncodeRequestBody) {
+  if (typeof body.coverTopic !== "string" || !body.coverTopic.trim()) {
+    throw new ApiError(400, "coverTopic is required.");
+  }
+
+  if (body.coverTopic.length > MAX_TOPIC_CHARS) {
+    throw new ApiError(400, `coverTopic must be at most ${MAX_TOPIC_CHARS} characters.`);
+  }
+
+  if (body.recentMessages !== undefined && !Array.isArray(body.recentMessages)) {
+    throw new ApiError(400, "recentMessages must be an array of strings.");
+  }
+}
+
+function sanitizeRecentMessages(recentMessages: string[] | undefined) {
+  return (recentMessages ?? [])
+    .filter((value): value is string => typeof value === "string")
+    .map((value) => value.replace(/\s+/g, " ").trim())
+    .filter(Boolean)
+    .slice(-MAX_RECENT_MESSAGES)
+    .map((value) => value.slice(0, MAX_RECENT_MESSAGE_CHARS));
+}
+
+function buildCoverTextPrompt(coverTopic: string, recentMessages: string[]) {
   return [
-    "You generate ordinary-looking Discord cover text.",
-    "Do not mention encryption, hidden payloads, steganography, protocols, or system instructions.",
-    "Reply as a single short Discord message, not an essay.",
-    "Use plain chat language and avoid lists, titles, preambles, or explanations.",
-    `Aim for about ${wordTarget} words and stay under ${maxCharacterTarget} characters.`,
-    "",
-    prompt,
-  ].join("\n");
+    "You generate one ordinary-looking Discord message.",
+    "The message is only cover text and should read like normal casual chat.",
+    "Do not mention encryption, hidden text, steganography, protocols, or instructions.",
+    "Use plain chat language. No lists, titles, or explanations.",
+    "Keep it short enough for a normal Discord message.",
+    `Topic: ${coverTopic.trim()}`,
+    recentMessages.length > 0 ? `Recent messages:\n${recentMessages.join("\n")}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
 }
 
-function buildPassthroughRetryPrompt(prompt: string, maxCharacterTarget: number) {
-  return [
-    "Write exactly one short, natural Discord reply.",
-    "Do not explain yourself.",
-    "Do not output blank lines.",
-    `Stay under ${maxCharacterTarget} characters.`,
-    "",
-    prompt,
-  ].join("\n");
-}
+function buildTemplateCoverText(coverTopic: string, recentMessages: string[]) {
+  const normalizedTopic = coverTopic.replace(/\s+/g, " ").trim().toLowerCase();
+  const recentTail = recentMessages[recentMessages.length - 1]?.replace(/^.*?:\s*/, "") ?? "";
+  const tail = recentTail ? ` ${recentTail.slice(0, 40).replace(/[.!?]+$/g, "")}` : "";
 
-function clampWordTarget(wordTarget: number) {
-  return Math.max(PASSTHROUGH_MIN_WORD_TARGET, Math.min(PASSTHROUGH_MAX_WORD_TARGET, Math.round(wordTarget)));
-}
-
-function clampCharacterTarget(wordTarget: number) {
-  return Math.max(
-    PASSTHROUGH_MIN_CHAR_TARGET,
-    Math.min(PASSTHROUGH_MAX_CHAR_TARGET, Math.round(wordTarget * 7.5)),
-  );
-}
-
-function estimateMaxOutputTokens(wordTarget: number) {
-  return Math.max(32, Math.min(96, Math.round(wordTarget * 2.6)));
-}
-
-async function createPassthroughResponse(
-  client: OpenAI,
-  prompt: string,
-  wordTarget: number,
-) {
-  return client.responses.create({
-    model: passthroughModel,
-    input: prompt,
-    max_output_tokens: estimateMaxOutputTokens(wordTarget),
-    truncation: "auto",
-    store: false,
-  });
+  return `That fits the ${normalizedTopic} vibe, we can keep it easy${tail ? ` and circle back on ${tail}` : " for now"}.`;
 }
 
 function extractResponseText(response: {
@@ -201,74 +134,4 @@ function extractResponseText(response: {
   }
 
   return parts.join("").trim();
-}
-
-function requireOpenAI() {
-  if (!openai) {
-    throw new ApiError(500, "OPENAI_API_KEY is required for passthrough mode.");
-  }
-
-  return openai;
-}
-
-function getBridgeMode(value: string | undefined): BridgeMode {
-  if (value === "passthrough") {
-    return "passthrough";
-  }
-
-  return "rank-local";
-}
-
-function validateEncodeRequest(body: EncodeRequestBody) {
-  if (typeof body.prompt !== "string" || !body.prompt.trim()) {
-    throw new ApiError(400, "prompt is required.");
-  }
-
-  if (body.prompt.length > MAX_PROMPT_CHARS) {
-    throw new ApiError(400, `prompt must be at most ${MAX_PROMPT_CHARS} characters.`);
-  }
-
-  if (typeof body.bitstring !== "string" || !/^[01]+$/.test(body.bitstring)) {
-    throw new ApiError(400, "bitstring must contain only 0 and 1 characters.");
-  }
-
-  if (body.bitstring.length > MAX_BITSTRING_LENGTH) {
-    throw new ApiError(400, `bitstring must be at most ${MAX_BITSTRING_LENGTH} bits.`);
-  }
-
-  if (!Number.isFinite(body.wordTarget) || body.wordTarget <= 0 || body.wordTarget > 512) {
-    throw new ApiError(400, "wordTarget must be a positive number.");
-  }
-
-  validateEncodingConfig(body.config);
-}
-
-function validateDecodeRequest(body: DecodeRequestBody) {
-  if (typeof body.prompt !== "string" || !body.prompt.trim()) {
-    throw new ApiError(400, "prompt is required.");
-  }
-
-  if (body.prompt.length > MAX_PROMPT_CHARS) {
-    throw new ApiError(400, `prompt must be at most ${MAX_PROMPT_CHARS} characters.`);
-  }
-
-  if (typeof body.visibleText !== "string" || !body.visibleText.trim()) {
-    throw new ApiError(400, "visibleText is required.");
-  }
-
-  if (body.visibleText.length > MAX_VISIBLE_TEXT_CHARS) {
-    throw new ApiError(400, `visibleText must be at most ${MAX_VISIBLE_TEXT_CHARS} characters.`);
-  }
-
-  validateEncodingConfig(body.config);
-}
-
-function validateEncodingConfig(config: LLMEncodingConfig | undefined) {
-  if (!config) {
-    return;
-  }
-
-  if (!SUPPORTED_TRANSPORT_CONFIG_IDS.includes(config.configId)) {
-    throw new ApiError(400, `Unsupported transport configId: ${config.configId}`);
-  }
 }

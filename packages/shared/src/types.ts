@@ -120,33 +120,14 @@ export type PendingSendStatus =
   | "deleted-due-to-race";
 
 export type TransportProtocolVersion = 1;
-export type SupportedTransportConfigId = "ghostscript-default-v1";
 
 export interface EncodedGhostscriptMessage {
+  submittedText: string;
   visibleText: string;
-  configId: SupportedTransportConfigId;
+  coverTextGenerator: string;
   modelId: string;
-  tokenizerId: string;
-  transportBackend: string;
   msgId: number;
-  estimatedWordTarget: number;
   transportProtocolVersion: TransportProtocolVersion;
-  promptFingerprint: string;
-}
-
-export interface LLMEncodingConfig {
-  configId: SupportedTransportConfigId;
-  provider: string;
-  modelId: string;
-  tokenizerId: string;
-  transportBackend: string;
-  bitsPerStep: number;
-  excludedTokenSet: string[];
-  fallbackStrategy: "reduce-bits";
-  tieBreakRule: "token-id-ascending";
-  payloadTerminationStrategy: "length-header";
-  contextTruncationStrategy: "tail";
-  maxContextTokens: number;
 }
 
 export interface MessageEnvelope {

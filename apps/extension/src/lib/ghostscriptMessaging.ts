@@ -1,8 +1,7 @@
 import type { ActivePairingState, EncodedGhostscriptMessage, GhostscriptThreadMessage } from "@ghostscript/shared";
-import { estimateWordTarget, serializeEnvelopeToBitstring } from "./bitstream";
+import { serializeEnvelopeToBitstring } from "./bitstream";
 import { compressBitstringForTransport } from "./bitCompression";
 import { decryptMessageEnvelope, encryptMessageEnvelope, type SessionCryptoMaterial } from "./crypto";
-import { buildDecodeHistoryWindows } from "./decodedMessages";
 import {
   buildBoundedConversationWindow,
   collectTwoPartyMessages,
@@ -25,17 +24,14 @@ import {
   storeDecodedMessage,
 } from "./ghostscriptState";
 import {
-  decodeCoverTextToBitstring,
-  encodeBitstringAsCoverText,
-  fingerprintTransportPrompt,
-  getDefaultEncodingConfig,
-  getSupportedEncodingConfigs,
+  buildCoverTextMessages,
+  generateCoverText,
   getTransportProtocolVersion,
 } from "./llmBridge";
 import { logGhostscriptDebug } from "./debugLog";
+import { appendInvisiblePayload } from "./invisibleTransport";
 import { readExtensionState } from "./pairingStore";
 import { countFilteredPromptMessages, filterPromptMessages } from "./promptHistory";
-import { buildConversationPrompt } from "./promptBuilder";
 
 const DISCORD_MAX_MESSAGE_LENGTH = 2000;
 
@@ -92,7 +88,7 @@ export async function sendEncryptedGhostscriptMessage(params: {
 
   const material = await getSessionCryptoMaterial(params.pairing);
   const msgId = await reserveNextMessageId(threadId);
-  let attemptedCoverText = "";
+  let attemptedSubmittedText = "";
   let attemptedEncodedMessage: EncodedGhostscriptMessage | null = null;
 
   await setPendingSend(threadId, {
@@ -110,27 +106,22 @@ export async function sendEncryptedGhostscriptMessage(params: {
     const envelope = await encryptMessageEnvelope(params.plaintext, msgId, material);
     const envelopeBitstring = serializeEnvelopeToBitstring(envelope);
     const compressedTransport = await compressBitstringForTransport(envelopeBitstring);
-    const encodingConfig = getDefaultEncodingConfig();
-    const wordTarget = estimateWordTarget(compressedTransport.bitstring.length, encodingConfig.bitsPerStep);
     const contextWindow = buildBoundedConversationWindow(promptMessages);
-    const prompt = buildConversationPrompt({
-      coverTopic: params.pairing.defaultCoverTopic ?? "general chat",
+    const coverTopic = params.pairing.defaultCoverTopic ?? "general chat";
+    const recentMessages = buildCoverTextMessages({
       contextWindow,
-      wordTarget,
-      replyTurn: params.plaintext,
     });
-    logGhostscriptDebug("messaging", "send-prompt-built", {
+    logGhostscriptDebug("messaging", "send-cover-context-built", {
+      coverTopic: params.pairing.defaultCoverTopic ?? "general chat",
       threadId,
       sessionId: params.pairing.session.id,
-      prompt,
-      promptLength: prompt.length,
+      recentMessageCount: recentMessages.length,
     });
-    const visibleText = await encodeBitstringAsCoverText({
-      prompt,
-      bitstring: compressedTransport.bitstring,
-      wordTarget,
-      config: encodingConfig,
+    const coverText = await generateCoverText({
+      coverTopic,
+      recentMessages,
     });
+    const submittedText = appendInvisiblePayload(coverText.visibleText, compressedTransport.bitstring);
     logGhostscriptDebug("messaging", "send-bitstring-compressed", {
       threadId,
       sessionId: params.pairing.session.id,
@@ -139,22 +130,19 @@ export async function sendEncryptedGhostscriptMessage(params: {
       compressionFormat: compressedTransport.format,
     });
     const encodedMessage = {
-      visibleText,
-      configId: encodingConfig.configId,
-      modelId: encodingConfig.modelId,
-      tokenizerId: encodingConfig.tokenizerId,
-      transportBackend: encodingConfig.transportBackend,
+      submittedText,
+      visibleText: coverText.visibleText,
+      coverTextGenerator: coverText.generator,
+      modelId: coverText.model,
       msgId,
-      estimatedWordTarget: wordTarget,
       transportProtocolVersion: getTransportProtocolVersion(),
-      promptFingerprint: await fingerprintTransportPrompt(prompt),
     };
-    attemptedCoverText = visibleText;
+    attemptedSubmittedText = submittedText;
     attemptedEncodedMessage = encodedMessage;
 
-    if (visibleText.length > DISCORD_MAX_MESSAGE_LENGTH) {
+    if (submittedText.length > DISCORD_MAX_MESSAGE_LENGTH) {
       throw new Error(
-        `Ghostscript generated ${visibleText.length} characters of cover text, which exceeds Discord's ${DISCORD_MAX_MESSAGE_LENGTH}-character limit.`,
+        `Ghostscript generated ${submittedText.length} total characters, which exceeds Discord's ${DISCORD_MAX_MESSAGE_LENGTH}-character limit.`,
       );
     }
 
@@ -162,21 +150,22 @@ export async function sendEncryptedGhostscriptMessage(params: {
       threadId,
       sessionId: params.pairing.session.id,
       status: "awaiting-discord-confirm",
-      expectedCoverText: visibleText,
+      expectedCoverText: submittedText,
       encodedMessage,
       startedAt: Date.now(),
       msgId,
       error: null,
     });
 
-    await sendTextThroughDiscord(visibleText);
+    await sendTextThroughDiscord(submittedText);
     logGhostscriptDebug("messaging", "send-discord-submit-complete", {
       threadId,
       sessionId: params.pairing.session.id,
-      visibleText,
-      visibleTextLength: visibleText.length,
+      visibleText: coverText.visibleText,
+      visibleTextLength: coverText.visibleText.length,
+      submittedTextLength: submittedText.length,
     });
-    return { visibleText };
+    return { visibleText: coverText.visibleText };
   } catch (error) {
     logGhostscriptDebug("messaging", "send-failed", {
       threadId,
@@ -190,7 +179,7 @@ export async function sendEncryptedGhostscriptMessage(params: {
       threadId,
       sessionId: params.pairing.session.id,
       status: "failed",
-      expectedCoverText: attemptedCoverText,
+      expectedCoverText: attemptedSubmittedText,
       encodedMessage: attemptedEncodedMessage,
       startedAt: Date.now(),
       msgId,
@@ -337,47 +326,22 @@ async function decodeIncomingMessages(
       continue;
     }
 
-    const priorMessages = messages.filter((candidate) => compareMessageOrder(candidate, message) < 0);
-    const cachedPriorMessages = conversation.cachedMessages.filter((candidate) => compareMessageOrder(candidate, message) < 0);
-    const visibleHistoryWindow = buildBoundedConversationWindow(filterPromptMessages(priorMessages, conversation));
-    const cachedHistoryWindow = buildBoundedConversationWindow(filterPromptMessages(cachedPriorMessages, conversation));
-    const historyWindows = buildDecodeHistoryWindows(visibleHistoryWindow, cachedHistoryWindow);
-
     logGhostscriptDebug("messaging", "decode-attempting", {
       threadId,
       discordMessageId: message.discordMessageId,
       visibleText: message.text,
-      visibleHistoryMessageCount: visibleHistoryWindow.messages.length,
-      cachedHistoryMessageCount: cachedHistoryWindow.messages.length,
-      historyWindowCount: historyWindows.length,
     });
 
-    const diagnostics: Array<{ outcome: string; configId: string; historyWindowSize: number; error?: string }> = [];
     const decodeResult = await attemptIncomingMessageDecode({
-      visibleText: message.text,
-      coverTopic: params.pairing.defaultCoverTopic ?? "general chat",
-      historyWindows,
+      messageText: message.text,
       material,
-      encodingConfigs: getSupportedEncodingConfigs(),
-      defaultConfigId: getDefaultEncodingConfig().configId,
-      decodeBitstring: decodeCoverTextToBitstring,
       decryptEnvelope: decryptMessageEnvelope,
-      fingerprintPrompt: fingerprintTransportPrompt,
-      onAttempt(event) {
-        diagnostics.push({
-          outcome: event.outcome,
-          configId: event.configId,
-          historyWindowSize: event.historyWindowSize,
-          error: event.error,
-        });
-      },
     });
 
     if (!decodeResult) {
       logGhostscriptDebug("messaging", "decode-no-payload", {
         threadId,
         discordMessageId: message.discordMessageId,
-        diagnostics,
         outcome: "not-decoded",
       });
       continue;
@@ -388,22 +352,18 @@ async function decodeIncomingMessages(
         threadId,
         discordMessageId: message.discordMessageId,
         plaintext: decodeResult.plaintext,
-        diagnostics,
       });
       await storeDecodedMessage(threadId, message.discordMessageId, {
         status: "decoded",
         plaintext: decodeResult.plaintext,
-        visibleText: message.text,
+        visibleText: decodeResult.visibleText,
         encodedMessage: {
-          visibleText: message.text,
-          configId: decodeResult.configId,
-          modelId: getDefaultEncodingConfig().modelId,
-          tokenizerId: getDefaultEncodingConfig().tokenizerId,
-          transportBackend: getDefaultEncodingConfig().transportBackend,
+          submittedText: message.text,
+          visibleText: decodeResult.visibleText,
+          coverTextGenerator: "invisible-unicode-suffix",
+          modelId: "received-message",
           msgId: 0,
-          estimatedWordTarget: 0,
           transportProtocolVersion: getTransportProtocolVersion(),
-          promptFingerprint: decodeResult.promptFingerprint,
         },
         processedAt: new Date().toISOString(),
         activeView: "decrypted",
@@ -413,7 +373,7 @@ async function decodeIncomingMessages(
         discordMessageId: message.discordMessageId,
         status: "decoded",
         plaintext: decodeResult.plaintext,
-        visibleText: message.text,
+        visibleText: decodeResult.visibleText,
         activeView: "decrypted",
       });
       continue;
@@ -423,23 +383,19 @@ async function decodeIncomingMessages(
       logGhostscriptDebug("messaging", "decode-tampered", {
         threadId,
         discordMessageId: message.discordMessageId,
-        diagnostics,
         outcome: "tampered",
       });
       await storeDecodedMessage(threadId, message.discordMessageId, {
         status: "tampered",
         plaintext: null,
-        visibleText: message.text,
+        visibleText: decodeResult.visibleText,
         encodedMessage: {
-          visibleText: message.text,
-          configId: decodeResult.configId,
-          modelId: getDefaultEncodingConfig().modelId,
-          tokenizerId: getDefaultEncodingConfig().tokenizerId,
-          transportBackend: getDefaultEncodingConfig().transportBackend,
+          submittedText: message.text,
+          visibleText: decodeResult.visibleText,
+          coverTextGenerator: "invisible-unicode-suffix",
+          modelId: "received-message",
           msgId: 0,
-          estimatedWordTarget: 0,
           transportProtocolVersion: getTransportProtocolVersion(),
-          promptFingerprint: decodeResult.promptFingerprint,
         },
         processedAt: new Date().toISOString(),
         activeView: "decrypted",
@@ -449,7 +405,7 @@ async function decodeIncomingMessages(
         discordMessageId: message.discordMessageId,
         status: "tampered",
         plaintext: null,
-        visibleText: message.text,
+        visibleText: decodeResult.visibleText,
         activeView: "decrypted",
       });
     }
@@ -531,14 +487,6 @@ function getRequiredThreadId() {
   }
 
   return threadId;
-}
-
-function compareMessageOrder(left: GhostscriptThreadMessage, right: GhostscriptThreadMessage) {
-  if (left.snowflakeTimestamp !== right.snowflakeTimestamp) {
-    return left.snowflakeTimestamp.localeCompare(right.snowflakeTimestamp);
-  }
-
-  return left.discordMessageId.localeCompare(right.discordMessageId);
 }
 
 function getPairingEstablishedAt(pairing: ActivePairingState) {

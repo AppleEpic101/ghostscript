@@ -1,9 +1,7 @@
 import {
-  DEFAULT_TRANSPORT_CONFIG_ID,
   type EncodedGhostscriptMessage,
   type GhostscriptThreadMessage,
   type PendingSendStatus,
-  type SupportedTransportConfigId,
 } from "@ghostscript/shared";
 import {
   createWrappingSecret,
@@ -44,7 +42,6 @@ export interface DecodedGhostscriptMessageState {
 export interface GhostscriptConversationState {
   threadId: string;
   nextOutboundMessageId: number;
-  pinnedEncodingConfigId: SupportedTransportConfigId;
   cachedMessages: GhostscriptThreadMessage[];
   suppressedMessageIds: string[];
   decodedMessages: Record<string, DecodedGhostscriptMessageState>;
@@ -250,7 +247,6 @@ function createEmptyConversationState(threadId: string): GhostscriptConversation
   return {
     threadId,
     nextOutboundMessageId: 1,
-    pinnedEncodingConfigId: DEFAULT_TRANSPORT_CONFIG_ID,
     cachedMessages: [],
     suppressedMessageIds: [],
     decodedMessages: {},
@@ -262,7 +258,6 @@ function createEmptyConversationState(threadId: string): GhostscriptConversation
 function normalizeConversationState(conversation: GhostscriptConversationState): GhostscriptConversationState {
   return {
     ...conversation,
-    pinnedEncodingConfigId: conversation.pinnedEncodingConfigId ?? DEFAULT_TRANSPORT_CONFIG_ID,
     confirmedEncodedMessages: conversation.confirmedEncodedMessages ?? [],
     pendingSend: conversation.pendingSend
       ? {

@@ -86,15 +86,12 @@ function createConversation(
 
 function createEncodedMessage(visibleText: string): EncodedGhostscriptMessage {
   return {
+    submittedText: visibleText,
     visibleText,
-    configId: "ghostscript-default-v1",
-    modelId: "xenova-distilgpt2-v1",
-    tokenizerId: "gpt2-tokenizer-v1",
-    transportBackend: "local-gpt2-top4-v1",
+    coverTextGenerator: "template-local",
+    modelId: "template-local",
     msgId: 1,
-    estimatedWordTarget: 16,
     transportProtocolVersion: 1,
-    promptFingerprint: "prompt",
   };
 }
 
