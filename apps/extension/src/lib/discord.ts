@@ -47,6 +47,13 @@ export function collectTwoPartyMessages(localUsername: string, partnerUsername: 
   const seenMessageIds = new Set<string>();
   let previousAuthor = "";
   const minimumTimestamp = normalizeTimestampFloor(sinceTimestamp);
+  const extractedMessages: Array<{
+    threadId: string;
+    discordMessageId: string;
+    authorUsername: string;
+    snowflakeTimestamp: string;
+    text: string;
+  }> = [];
 
   for (const element of elements) {
     const discordMessageId = extractMessageId(element);
@@ -85,17 +92,70 @@ export function collectTwoPartyMessages(localUsername: string, partnerUsername: 
       continue;
     }
 
-    messages.push({
+    extractedMessages.push({
       threadId,
       discordMessageId,
       authorUsername,
       snowflakeTimestamp,
       text,
+    });
+  }
+
+  const authorClassification = classifyTwoPartyAuthors(
+    extractedMessages.map((message) => message.authorUsername),
+    localUsername,
+    partnerUsername,
+  );
+
+  for (const message of extractedMessages) {
+    const normalizedAuthor = normalizeUsername(message.authorUsername);
+    let direction: GhostscriptThreadMessage["direction"] = "other";
+    if (authorClassification.localAuthors.has(normalizedAuthor)) {
+      direction = "outgoing";
+    } else if (authorClassification.partnerAuthors.has(normalizedAuthor)) {
+      direction = "incoming";
+    }
+
+    if (direction === "other") {
+      continue;
+    }
+
+    messages.push({
+      ...message,
       direction,
     });
   }
 
   return messages.sort(compareMessagesAscending);
+}
+
+export function classifyTwoPartyAuthors(authorUsernames: string[], localUsername: string, partnerUsername: string) {
+  const normalizedLocal = normalizeUsername(localUsername);
+  const normalizedPartner = normalizeUsername(partnerUsername);
+  const distinctAuthors = Array.from(new Set(authorUsernames.map(normalizeUsername).filter(Boolean)));
+  const localAuthors = new Set(distinctAuthors.filter((author) => usernamesProbablyMatch(author, normalizedLocal)));
+  const partnerAuthors = new Set(distinctAuthors.filter((author) => usernamesProbablyMatch(author, normalizedPartner)));
+
+  if (distinctAuthors.length === 2) {
+    if (localAuthors.size > 0 && partnerAuthors.size === 0) {
+      const inferredPartner = distinctAuthors.find((author) => !localAuthors.has(author));
+      if (inferredPartner) {
+        partnerAuthors.add(inferredPartner);
+      }
+    }
+
+    if (partnerAuthors.size > 0 && localAuthors.size === 0) {
+      const inferredLocal = distinctAuthors.find((author) => !partnerAuthors.has(author));
+      if (inferredLocal) {
+        localAuthors.add(inferredLocal);
+      }
+    }
+  }
+
+  return {
+    localAuthors,
+    partnerAuthors,
+  };
 }
 
 export function buildBoundedConversationWindow(
@@ -361,7 +421,38 @@ function compareMessagesAscending(left: GhostscriptThreadMessage, right: Ghostsc
 }
 
 function normalizeUsername(value: string) {
-  return value.trim().replace(/^@+/, "").toLowerCase();
+  return value
+    .trim()
+    .replace(/^@+/, "")
+    .replace(/#[0-9]{4,}$/, "")
+    .toLowerCase();
+}
+
+function usernamesProbablyMatch(left: string, right: string) {
+  if (!left || !right) {
+    return false;
+  }
+
+  if (left === right) {
+    return true;
+  }
+
+  const compactLeft = compactUsername(left);
+  const compactRight = compactUsername(right);
+
+  if (!compactLeft || !compactRight) {
+    return false;
+  }
+
+  return (
+    compactLeft === compactRight ||
+    (compactLeft.length >= 5 && compactRight.includes(compactLeft)) ||
+    (compactRight.length >= 5 && compactLeft.includes(compactRight))
+  );
+}
+
+function compactUsername(value: string) {
+  return value.replace(/[^a-z0-9]/g, "");
 }
 
 function normalizeTimestampFloor(value?: string) {
