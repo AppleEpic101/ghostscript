@@ -39,6 +39,9 @@ export interface PairedContact {
   defaultCoverTopic: string;
   inviteCode: string;
   status: Extract<PairingStatus, "paired" | "invalidated">;
+  transportPublicKey?: string | null;
+  signingPublicKey?: string | null;
+  identityFingerprint?: string | null;
 }
 
 export interface ActivePairingState {

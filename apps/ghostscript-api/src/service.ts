@@ -378,17 +378,41 @@ function parseStoredPublicIdentity(value: string | null) {
   }
 
   try {
-    const parsed = JSON.parse(value) as Partial<PublicIdentity> & { v?: number };
+    const parsed = JSON.parse(value) as Partial<PublicIdentity> & {
+      v?: number;
+      identityPublicKey?: string;
+      publicKey?: string;
+      key?: string;
+    };
+    const legacyParsedPublicKey =
+      typeof parsed.transportPublicKey === "string"
+        ? parsed.transportPublicKey
+        : typeof parsed.identityPublicKey === "string"
+          ? parsed.identityPublicKey
+          : typeof parsed.publicKey === "string"
+            ? parsed.publicKey
+            : typeof parsed.key === "string"
+              ? parsed.key
+              : null;
+
     return {
-      transportPublicKey: typeof parsed.transportPublicKey === "string" ? parsed.transportPublicKey : null,
-      signingPublicKey: typeof parsed.signingPublicKey === "string" ? parsed.signingPublicKey : null,
-      identityFingerprint: typeof parsed.identityFingerprint === "string" ? parsed.identityFingerprint : null,
+      transportPublicKey: legacyParsedPublicKey,
+      signingPublicKey:
+        typeof parsed.signingPublicKey === "string"
+          ? parsed.signingPublicKey
+          : legacyParsedPublicKey,
+      identityFingerprint:
+        typeof parsed.identityFingerprint === "string"
+          ? parsed.identityFingerprint
+          : legacyParsedPublicKey
+            ? `legacy:${legacyParsedPublicKey.slice(0, 24)}`
+            : null,
     };
   } catch {
     return {
       transportPublicKey: value,
-      signingPublicKey: null,
-      identityFingerprint: null,
+      signingPublicKey: value,
+      identityFingerprint: `legacy:${value.slice(0, 24)}`,
     };
   }
 }

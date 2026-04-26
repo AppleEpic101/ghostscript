@@ -21,6 +21,7 @@ import {
   storeDecodedMessage,
 } from "./ghostscriptState";
 import { buildConversationPrompt, decodeCoverTextToBitstring, encodeBitstringAsCoverText, getDefaultEncodingConfig } from "./llmBridge";
+import { readExtensionState } from "./pairingStore";
 
 const DISCORD_MAX_MESSAGE_LENGTH = 2000;
 
@@ -282,7 +283,8 @@ function renderStoredDecodedMessage(
 
 async function getSessionCryptoMaterial(pairing: ActivePairingState): Promise<SessionCryptoMaterial> {
   const counterpart = pairing.counterpart;
-  if (!counterpart?.transportPublicKey) {
+  const counterpartTransportPublicKey = await resolveCounterpartTransportKey(pairing);
+  if (!counterpart || !counterpartTransportPublicKey) {
     throw new Error("Your partner's Ghostscript key is not available yet.");
   }
 
@@ -297,8 +299,24 @@ async function getSessionCryptoMaterial(pairing: ActivePairingState): Promise<Se
     localParticipantId: pairing.localParticipant.id,
     counterpartParticipantId: counterpart.id,
     localTransportPrivateKey: localKeypair.transportPrivateKey,
-    counterpartTransportPublicKey: counterpart.transportPublicKey,
+    counterpartTransportPublicKey,
   };
+}
+
+async function resolveCounterpartTransportKey(pairing: ActivePairingState) {
+  const directKey = pairing.counterpart?.transportPublicKey ?? (pairing.counterpart as { identityPublicKey?: string | null } | null)?.identityPublicKey ?? null;
+  if (directKey) {
+    return directKey;
+  }
+
+  const state = await readExtensionState();
+  const contact = state.contacts.find(
+    (candidate) =>
+      candidate.id === pairing.counterpart?.id ||
+      (candidate.sessionId === pairing.session.id && candidate.username === pairing.counterpart?.username),
+  );
+
+  return contact?.transportPublicKey ?? null;
 }
 
 function getRequiredThreadId() {

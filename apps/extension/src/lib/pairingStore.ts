@@ -188,6 +188,9 @@ function buildContact(participant: PairingParticipant, session: PairingSession, 
     defaultCoverTopic: coverTopic,
     inviteCode: session.invite.code,
     status: session.status === "invalidated" ? "invalidated" : "paired",
+    transportPublicKey: participant.transportPublicKey ?? null,
+    signingPublicKey: participant.signingPublicKey ?? null,
+    identityFingerprint: participant.identityFingerprint ?? null,
   };
 }
 
@@ -242,5 +245,8 @@ function normalizeContacts(contacts: PairedContact[]) {
   return contacts.map((contact) => ({
     ...contact,
     username: contact.username ?? (contact as PairedContact & { displayName?: string }).displayName ?? "",
+    transportPublicKey: contact.transportPublicKey ?? null,
+    signingPublicKey: contact.signingPublicKey ?? null,
+    identityFingerprint: contact.identityFingerprint ?? null,
   }));
 }
