@@ -30,26 +30,30 @@ const server = createServer(async (request, response) => {
 
     if (request.method === "POST" && pathname === "/pairing/invites") {
       const body = await readJsonBody<CreateInviteRequest>(request);
-      sendJson(response, 201, pairingService.createInvite(body));
+      sendJson(response, 201, await pairingService.createInvite(body));
       return;
     }
 
     const inviteStatusMatch = pathname.match(/^\/pairing\/invites\/([^/]+)$/);
     if (request.method === "GET" && inviteStatusMatch) {
-      sendJson(response, 200, pairingService.getInviteSessionStatus(decodeURIComponent(inviteStatusMatch[1] ?? "")));
+      sendJson(
+        response,
+        200,
+        await pairingService.getInviteSessionStatus(decodeURIComponent(inviteStatusMatch[1] ?? "")),
+      );
       return;
     }
 
     const joinMatch = pathname.match(/^\/pairing\/invites\/([^/]+)\/join$/);
     if (request.method === "POST" && joinMatch) {
       const body = await readJsonBody<JoinInviteRequest>(request);
-      sendJson(response, 200, pairingService.joinInvite(decodeURIComponent(joinMatch[1] ?? ""), body));
+      sendJson(response, 200, await pairingService.joinInvite(decodeURIComponent(joinMatch[1] ?? ""), body));
       return;
     }
 
     if (request.method === "POST" && pathname === "/pairing/reset") {
       const body = await readJsonBody<ResetPairingRequest>(request);
-      sendJson(response, 200, pairingService.resetPairing(body));
+      sendJson(response, 200, await pairingService.resetPairing(body));
       return;
     }
 

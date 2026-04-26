@@ -266,7 +266,7 @@ function PopupApp() {
       <p className="popup-eyebrow">Ghostscript</p>
       <h1>Pair for concealed Discord messaging</h1>
       <p className="popup-copy">
-        Ghostscript pairs you with one other person so Discord only sees normal-looking cover text while your extension keeps the paired connection locally.
+        Ghostscript pairs you with one other person so Discord only sees normal-looking cover text while the pairing service keeps the shared connection state in sync.
       </p>
 
       {lobbyInviteCode ? (

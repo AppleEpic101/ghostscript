@@ -1,4 +1,5 @@
 import type {
+  ActivePairingState,
   ExtensionState,
   PairedContact,
   PairingParticipant,
@@ -6,7 +7,14 @@ import type {
 } from "@ghostscript/shared";
 import { readStorageValue, writeStorageValue } from "./storage";
 
-const STORAGE_KEY = "ghostscript-extension-state";
+const PROFILE_STORAGE_KEY = "ghostscript-extension-profile";
+const DRAFT_STORAGE_KEY = "ghostscript-extension-drafts";
+const PAIRING_CACHE_STORAGE_KEY = "ghostscript-extension-pairing-cache";
+
+interface PairingCacheState {
+  activePairing: ActivePairingState | null;
+  contacts: PairedContact[];
+}
 
 const EMPTY_STATE: ExtensionState = {
   profile: null,
@@ -16,29 +24,30 @@ const EMPTY_STATE: ExtensionState = {
 };
 
 export async function readExtensionState(): Promise<ExtensionState> {
-  return (await readStorageValue<ExtensionState>(STORAGE_KEY)) ?? EMPTY_STATE;
-}
+  const [profile, drafts, pairingCache] = await Promise.all([
+    readStorageValue<ExtensionState["profile"]>(PROFILE_STORAGE_KEY),
+    readStorageValue<ExtensionState["drafts"]>(DRAFT_STORAGE_KEY),
+    readStorageValue<PairingCacheState>(PAIRING_CACHE_STORAGE_KEY),
+  ]);
 
-export async function writeExtensionState(state: ExtensionState) {
-  await writeStorageValue(STORAGE_KEY, state);
+  return {
+    profile: profile ?? EMPTY_STATE.profile,
+    drafts: drafts ?? EMPTY_STATE.drafts,
+    activePairing: pairingCache?.activePairing ?? EMPTY_STATE.activePairing,
+    contacts: pairingCache?.contacts ?? EMPTY_STATE.contacts,
+  };
 }
 
 export async function storeDiscordUsername(discordUsername: string) {
-  const state = await readExtensionState();
-  state.profile = { discordUsername };
-  await writeExtensionState(state);
+  await writeStorageValue(PROFILE_STORAGE_KEY, discordUsername ? { discordUsername } : null);
 }
 
 export async function storeInviteDraft(inviteCode: string) {
-  const state = await readExtensionState();
-  state.drafts = inviteCode ? { inviteCode } : null;
-  await writeExtensionState(state);
+  await writeStorageValue(DRAFT_STORAGE_KEY, inviteCode ? { inviteCode } : null);
 }
 
 export async function clearInviteDraft() {
-  const state = await readExtensionState();
-  state.drafts = null;
-  await writeExtensionState(state);
+  await writeStorageValue(DRAFT_STORAGE_KEY, null);
 }
 
 export async function storeCreatedInvite(params: {
@@ -47,17 +56,19 @@ export async function storeCreatedInvite(params: {
   localParticipant: PairingParticipant;
   coverTopic: string;
 }) {
-  const state = await readExtensionState();
-  state.activePairing = {
-    inviteCode: params.inviteCode,
-    status: params.session.status,
-    session: params.session,
-    localParticipant: params.localParticipant,
-    counterpart: null,
-    defaultCoverTopic: params.coverTopic,
-  };
-  state.drafts = null;
-  await writeExtensionState(state);
+  await writePairingCache({
+    activePairing: {
+      inviteCode: params.inviteCode,
+      status: params.session.status,
+      session: params.session,
+      localParticipant: params.localParticipant,
+      counterpart: null,
+      defaultCoverTopic: params.coverTopic,
+    },
+    contacts: [],
+  });
+
+  await clearInviteDraft();
 }
 
 export async function storeJoinedPairing(params: {
@@ -67,20 +78,22 @@ export async function storeJoinedPairing(params: {
   counterpart: PairingParticipant;
   coverTopic: string;
 }) {
-  const state = await readExtensionState();
+  const currentState = await readExtensionState();
   const contact = buildContact(params.counterpart, params.session, params.coverTopic);
 
-  state.activePairing = {
-    inviteCode: params.inviteCode,
-    status: params.session.status,
-    session: params.session,
-    localParticipant: params.localParticipant,
-    counterpart: params.counterpart,
-    defaultCoverTopic: params.coverTopic,
-  };
-  upsertContactRecord(state.contacts, contact);
-  state.drafts = null;
-  await writeExtensionState(state);
+  await writePairingCache({
+    activePairing: {
+      inviteCode: params.inviteCode,
+      status: params.session.status,
+      session: params.session,
+      localParticipant: params.localParticipant,
+      counterpart: params.counterpart,
+      defaultCoverTopic: params.coverTopic,
+    },
+    contacts: upsertContactRecord(currentState.contacts, contact),
+  });
+
+  await clearInviteDraft();
 }
 
 export async function applyInviteSessionSnapshot(params: {
@@ -105,7 +118,22 @@ export async function applyInviteSessionSnapshot(params: {
     throw new Error("Active pairing participant is missing from the latest session snapshot.");
   }
 
-  state.activePairing = {
+  const contacts = [...state.contacts];
+
+  if (counterpart && params.coverTopic && params.session.status === "paired") {
+    const nextContact = buildContact(counterpart, params.session, params.coverTopic);
+    replaceOrInsertContact(contacts, nextContact);
+  }
+
+  if (params.session.status === "invalidated") {
+    for (const contact of contacts) {
+      if (contact.sessionId === params.session.id) {
+        contact.status = "invalidated";
+      }
+    }
+  }
+
+  const nextActivePairing: ActivePairingState = {
     ...activePairing,
     status: params.session.status,
     session: params.session,
@@ -114,20 +142,12 @@ export async function applyInviteSessionSnapshot(params: {
     defaultCoverTopic: params.coverTopic,
   };
 
-  if (counterpart && params.coverTopic && params.session.status === "paired") {
-    upsertContactRecord(state.contacts, buildContact(counterpart, params.session, params.coverTopic));
-  }
+  await writePairingCache({
+    activePairing: nextActivePairing,
+    contacts,
+  });
 
-  if (params.session.status === "invalidated") {
-    for (const contact of state.contacts) {
-      if (contact.sessionId === params.session.id) {
-        contact.status = "invalidated";
-      }
-    }
-  }
-
-  await writeExtensionState(state);
-  return state.activePairing;
+  return nextActivePairing;
 }
 
 export async function getPrimaryContact() {
@@ -137,18 +157,18 @@ export async function getPrimaryContact() {
 
 export async function endLocalPairing(inviteCode: string) {
   const state = await readExtensionState();
+  const contacts = state.contacts.map((contact) =>
+    contact.inviteCode === inviteCode ? { ...contact, status: "invalidated" as const } : contact,
+  );
 
-  if (state.activePairing?.inviteCode === inviteCode) {
-    state.activePairing = null;
-  }
+  await writePairingCache({
+    activePairing: state.activePairing?.inviteCode === inviteCode ? null : state.activePairing,
+    contacts,
+  });
+}
 
-  for (const contact of state.contacts) {
-    if (contact.inviteCode === inviteCode) {
-      contact.status = "invalidated";
-    }
-  }
-
-  await writeExtensionState(state);
+async function writePairingCache(pairingCache: PairingCacheState) {
+  await writeStorageValue(PAIRING_CACHE_STORAGE_KEY, pairingCache);
 }
 
 function buildContact(participant: PairingParticipant, session: PairingSession, coverTopic: string): PairedContact {
@@ -164,6 +184,12 @@ function buildContact(participant: PairingParticipant, session: PairingSession, 
 }
 
 function upsertContactRecord(contacts: PairedContact[], nextContact: PairedContact) {
+  const nextContacts = [...contacts];
+  replaceOrInsertContact(nextContacts, nextContact);
+  return nextContacts;
+}
+
+function replaceOrInsertContact(contacts: PairedContact[], nextContact: PairedContact) {
   const existingIndex = contacts.findIndex((contact) => contact.id === nextContact.id);
 
   if (existingIndex === -1) {
