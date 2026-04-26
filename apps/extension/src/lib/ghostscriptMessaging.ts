@@ -32,6 +32,7 @@ import {
   getSupportedEncodingConfigs,
   getTransportProtocolVersion,
 } from "./llmBridge";
+import { logGhostscriptDebug } from "./debugLog";
 import { readExtensionState } from "./pairingStore";
 
 const DISCORD_MAX_MESSAGE_LENGTH = 2000;
@@ -43,6 +44,14 @@ export async function sendEncryptedGhostscriptMessage(params: {
   partnerUsername: string;
 }) {
   const threadId = getRequiredThreadId();
+  logGhostscriptDebug("messaging", "send-start", {
+    threadId,
+    sessionId: params.pairing.session.id,
+    localUsername: params.localUsername,
+    partnerUsername: params.partnerUsername,
+    plaintext: params.plaintext,
+    plaintextLength: params.plaintext.length,
+  });
   const existingConversation = await readConversationState(threadId);
   if (isPendingSendStale(existingConversation.pendingSend, params.pairing.session.id)) {
     await setPendingSend(threadId, null);
@@ -58,6 +67,11 @@ export async function sendEncryptedGhostscriptMessage(params: {
     params.partnerUsername,
     getPairingEstablishedAt(params.pairing),
   );
+  logGhostscriptDebug("messaging", "send-collected-context", {
+    threadId,
+    sessionId: params.pairing.session.id,
+    messageCount: conversationMessages.length,
+  });
   await cacheConversationMessages(threadId, conversationMessages);
   const conversation = await readConversationState(threadId);
 
@@ -83,6 +97,12 @@ export async function sendEncryptedGhostscriptMessage(params: {
     const prompt = buildConversationPrompt({
       coverTopic: params.pairing.defaultCoverTopic ?? "general chat",
       messages: buildBoundedConversationWindow(conversation.cachedMessages),
+    });
+    logGhostscriptDebug("messaging", "send-prompt-built", {
+      threadId,
+      sessionId: params.pairing.session.id,
+      prompt,
+      promptLength: prompt.length,
     });
     const visibleText = await encodeBitstringAsCoverText({
       prompt,
@@ -115,8 +135,19 @@ export async function sendEncryptedGhostscriptMessage(params: {
     });
 
     await sendTextThroughDiscord(visibleText);
+    logGhostscriptDebug("messaging", "send-discord-submit-complete", {
+      threadId,
+      sessionId: params.pairing.session.id,
+      visibleText,
+      visibleTextLength: visibleText.length,
+    });
     return { visibleText };
   } catch (error) {
+    logGhostscriptDebug("messaging", "send-failed", {
+      threadId,
+      sessionId: params.pairing.session.id,
+      error: error instanceof Error ? error.message : "Ghostscript send failed.",
+    });
     await setPendingSend(threadId, {
       threadId,
       sessionId: params.pairing.session.id,
@@ -151,7 +182,7 @@ export async function syncGhostscriptConversation(params: {
     params.partnerUsername,
     pairingEstablishedAt,
   );
-  console.info("[Ghostscript] Sync collected in-scope thread messages.", {
+  logGhostscriptDebug("messaging", "sync-collected-messages", {
     threadId,
     pairingEstablishedAt,
     messageCount: messages.length,
@@ -222,7 +253,7 @@ async function decodeIncomingMessages(
 
   for (const message of messages) {
     if (message.direction !== "incoming") {
-      console.info("[Ghostscript] Decode skipped.", {
+      logGhostscriptDebug("messaging", "decode-skipped", {
         threadId,
         discordMessageId: message.discordMessageId,
         reason: "not-incoming",
@@ -231,7 +262,7 @@ async function decodeIncomingMessages(
     }
 
     if (suppressedMessageIds.includes(message.discordMessageId)) {
-      console.info("[Ghostscript] Decode skipped.", {
+      logGhostscriptDebug("messaging", "decode-skipped", {
         threadId,
         discordMessageId: message.discordMessageId,
         reason: "suppressed",
@@ -240,7 +271,7 @@ async function decodeIncomingMessages(
     }
 
     if (conversation.decodedMessages[message.discordMessageId]) {
-      console.info("[Ghostscript] Decode skipped.", {
+      logGhostscriptDebug("messaging", "decode-skipped", {
         threadId,
         discordMessageId: message.discordMessageId,
         reason: "already-processed",
@@ -254,9 +285,10 @@ async function decodeIncomingMessages(
     const cachedHistoryWindow = buildBoundedConversationWindow(cachedPriorMessages);
     const historyWindows = buildDecodeHistoryWindows(visibleHistoryWindow, cachedHistoryWindow);
 
-    console.info("[Ghostscript] Decode attempting.", {
+    logGhostscriptDebug("messaging", "decode-attempting", {
       threadId,
       discordMessageId: message.discordMessageId,
+      visibleText: message.text,
       visibleHistoryMessageCount: visibleHistoryWindow.length,
       cachedHistoryMessageCount: cachedHistoryWindow.length,
       historyWindowCount: historyWindows.length,
@@ -284,7 +316,7 @@ async function decodeIncomingMessages(
     });
 
     if (!decodeResult) {
-      console.info("[Ghostscript] Decode completed without a recoverable Ghostscript payload.", {
+      logGhostscriptDebug("messaging", "decode-no-payload", {
         threadId,
         discordMessageId: message.discordMessageId,
         diagnostics,
@@ -294,7 +326,7 @@ async function decodeIncomingMessages(
     }
 
     if (decodeResult.status === "decoded") {
-      console.info("[Ghostscript] Last decrypted incoming message:", {
+      logGhostscriptDebug("messaging", "decode-success", {
         threadId,
         discordMessageId: message.discordMessageId,
         plaintext: decodeResult.plaintext,
@@ -325,7 +357,7 @@ async function decodeIncomingMessages(
     }
 
     if (decodeResult.status === "tampered") {
-      console.info("[Ghostscript] Decode recovered a framed payload but authentication failed.", {
+      logGhostscriptDebug("messaging", "decode-tampered", {
         threadId,
         discordMessageId: message.discordMessageId,
         diagnostics,

@@ -1,5 +1,6 @@
 import nacl from "tweetnacl";
 import type { MessageEnvelope } from "@ghostscript/shared";
+import { logGhostscriptDebug } from "./debugLog";
 
 const ENVELOPE_VERSION = 1 as const;
 const WRAPPED_IDENTITY_VERSION = 1 as const;
@@ -141,6 +142,15 @@ export async function encryptMessageEnvelope(
   msgId: number,
   material: SessionCryptoMaterial,
 ): Promise<MessageEnvelope> {
+  logGhostscriptDebug("crypto", "encrypt-start", {
+    sessionId: material.sessionId,
+    threadId: material.threadId,
+    senderId: material.localParticipantId,
+    recipientId: material.counterpartParticipantId,
+    msgId,
+    plaintext,
+    plaintextLength: plaintext.length,
+  });
   const { key, nonce } = await deriveDirectionalSecrets(
     material,
     material.localParticipantId,
@@ -165,12 +175,23 @@ export async function encryptMessageEnvelope(
     new TextEncoder().encode(plaintext),
   );
 
-  return {
+  const envelope = {
     v: ENVELOPE_VERSION,
     senderId: material.localParticipantId,
     msgId,
     ciphertext: arrayBufferToBase64(ciphertext),
   };
+
+  logGhostscriptDebug("crypto", "encrypt-complete", {
+    sessionId: material.sessionId,
+    threadId: material.threadId,
+    senderId: material.localParticipantId,
+    recipientId: material.counterpartParticipantId,
+    msgId,
+    ciphertextLength: envelope.ciphertext.length,
+  });
+
+  return envelope;
 }
 
 export async function decryptMessageEnvelope(
@@ -182,21 +203,53 @@ export async function decryptMessageEnvelope(
     throw new Error("Envelope sender does not match the active Ghostscript pairing.");
   }
 
-  const { key, nonce } = await deriveDirectionalSecrets(material, senderId, material.localParticipantId, envelope.msgId);
-  const additionalData = encodeAdditionalData(material.threadId, senderId, material.localParticipantId, envelope.msgId);
-  const cryptoKey = await crypto.subtle.importKey("raw", key, "AES-GCM", false, ["decrypt"]);
-  const plaintext = await crypto.subtle.decrypt(
-    {
-      name: "AES-GCM",
-      iv: nonce,
-      additionalData,
-      tagLength: 128,
-    },
-    cryptoKey,
-    base64ToArrayBuffer(envelope.ciphertext),
-  );
+  logGhostscriptDebug("crypto", "decrypt-start", {
+    sessionId: material.sessionId,
+    threadId: material.threadId,
+    senderId,
+    recipientId: material.localParticipantId,
+    msgId: envelope.msgId,
+    ciphertextLength: envelope.ciphertext.length,
+  });
 
-  return new TextDecoder().decode(plaintext);
+  try {
+    const { key, nonce } = await deriveDirectionalSecrets(material, senderId, material.localParticipantId, envelope.msgId);
+    const additionalData = encodeAdditionalData(material.threadId, senderId, material.localParticipantId, envelope.msgId);
+    const cryptoKey = await crypto.subtle.importKey("raw", key, "AES-GCM", false, ["decrypt"]);
+    const plaintext = await crypto.subtle.decrypt(
+      {
+        name: "AES-GCM",
+        iv: nonce,
+        additionalData,
+        tagLength: 128,
+      },
+      cryptoKey,
+      base64ToArrayBuffer(envelope.ciphertext),
+    );
+    const decodedPlaintext = new TextDecoder().decode(plaintext);
+
+    logGhostscriptDebug("crypto", "decrypt-complete", {
+      sessionId: material.sessionId,
+      threadId: material.threadId,
+      senderId,
+      recipientId: material.localParticipantId,
+      msgId: envelope.msgId,
+      plaintext: decodedPlaintext,
+      plaintextLength: decodedPlaintext.length,
+    });
+
+    return decodedPlaintext;
+  } catch (error) {
+    logGhostscriptDebug("crypto", "decrypt-failed", {
+      sessionId: material.sessionId,
+      threadId: material.threadId,
+      senderId,
+      recipientId: material.localParticipantId,
+      msgId: envelope.msgId,
+      error: error instanceof Error ? error.message : "Unknown decrypt failure.",
+    });
+    throw error;
+  }
 }
 
 async function deriveDirectionalSecrets(

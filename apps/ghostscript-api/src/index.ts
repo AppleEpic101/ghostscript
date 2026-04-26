@@ -39,13 +39,42 @@ const server = createServer(async (request, response) => {
 
     if (request.method === "POST" && pathname === "/encode") {
       const body = await readJsonBody<EncodeRequestBody>(request);
+      console.log("[Ghostscript Terminal]", JSON.stringify({
+        ts: new Date().toISOString(),
+        source: "api",
+        event: "encode-route",
+        details: {
+          promptLength: body.prompt.length,
+          bitstringLength: body.bitstring.length,
+          wordTarget: body.wordTarget,
+          configId: body.config.configId,
+        },
+      }));
       sendJson(response, 200, await llmService.encode(body));
       return;
     }
 
     if (request.method === "POST" && pathname === "/decode") {
       const body = await readJsonBody<DecodeRequestBody>(request);
+      console.log("[Ghostscript Terminal]", JSON.stringify({
+        ts: new Date().toISOString(),
+        source: "api",
+        event: "decode-route",
+        details: {
+          promptLength: body.prompt.length,
+          visibleText: body.visibleText,
+          visibleTextLength: body.visibleText.length,
+          configId: body.config.configId,
+        },
+      }));
       sendJson(response, 200, await llmService.decode(body));
+      return;
+    }
+
+    if (request.method === "POST" && pathname === "/debug-log") {
+      const body = await readJsonBody<unknown>(request);
+      console.log("[Ghostscript Terminal]", JSON.stringify(body));
+      sendJson(response, 202, { ok: true });
       return;
     }
 

@@ -4,6 +4,7 @@ import {
   getPreferredDebugMessageText,
   type DecodedGhostscriptMessageView,
 } from "./decodedMessages";
+import { logGhostscriptDebug } from "./debugLog";
 import { readConversationState } from "./ghostscriptState";
 import { setDecodedMessageActiveView } from "./ghostscriptState";
 
@@ -44,6 +45,12 @@ export function collectTwoPartyMessages(localUsername: string, partnerUsername: 
   const threadId = getCurrentDiscordThreadId();
 
   if (!threadId) {
+    logGhostscriptDebug("collector", "collect-skipped", {
+      reason: "no-thread-id",
+      localUsername,
+      partnerUsername,
+      sinceTimestamp: sinceTimestamp ?? null,
+    });
     return [];
   }
 
@@ -84,6 +91,20 @@ export function collectTwoPartyMessages(localUsername: string, partnerUsername: 
     });
   }
 
+  logGhostscriptDebug("collector", "raw-messages-extracted", {
+    threadId,
+    localUsername,
+    partnerUsername,
+    sinceTimestamp: sinceTimestamp ?? null,
+    extractedCount: extractedMessages.length,
+    extractedMessages: extractedMessages.map((message) => ({
+      discordMessageId: message.discordMessageId,
+      authorUsername: message.authorUsername,
+      snowflakeTimestamp: message.snowflakeTimestamp,
+      text: message.text,
+    })),
+  });
+
   return filterEligibleTwoPartyMessages(extractedMessages, localUsername, partnerUsername, sinceTimestamp);
 }
 
@@ -112,7 +133,23 @@ export function filterEligibleTwoPartyMessages(
     partnerUsername,
   );
 
-  return timestampFilteredMessages
+  logGhostscriptDebug("collector", "post-filter-classification", {
+    localUsername,
+    partnerUsername,
+    sinceTimestamp: sinceTimestamp ?? null,
+    minimumTimestamp,
+    timestampFilteredCount: timestampFilteredMessages.length,
+    timestampFilteredMessages: timestampFilteredMessages.map((message) => ({
+      discordMessageId: message.discordMessageId,
+      authorUsername: message.authorUsername,
+      snowflakeTimestamp: message.snowflakeTimestamp,
+      text: message.text,
+    })),
+    localAuthors: Array.from(authorClassification.localAuthors),
+    partnerAuthors: Array.from(authorClassification.partnerAuthors),
+  });
+
+  const eligibleMessages = timestampFilteredMessages
     .map((message) => {
       const normalizedAuthor = normalizeUsername(message.authorUsername);
       let direction: GhostscriptThreadMessage["direction"] = "other";
@@ -129,6 +166,22 @@ export function filterEligibleTwoPartyMessages(
     })
     .filter((message) => message.direction !== "other")
     .sort(compareMessagesAscending);
+
+  logGhostscriptDebug("collector", "eligible-messages-final", {
+    localUsername,
+    partnerUsername,
+    sinceTimestamp: sinceTimestamp ?? null,
+    eligibleCount: eligibleMessages.length,
+    eligibleMessages: eligibleMessages.map((message) => ({
+      discordMessageId: message.discordMessageId,
+      authorUsername: message.authorUsername,
+      snowflakeTimestamp: message.snowflakeTimestamp,
+      direction: message.direction,
+      text: message.text,
+    })),
+  });
+
+  return eligibleMessages;
 }
 
 export function classifyTwoPartyAuthors(authorUsernames: string[], localUsername: string, partnerUsername: string) {
@@ -356,8 +409,9 @@ export async function renderDebugOverlayOnAllMessages(messages: GhostscriptThrea
   for (const message of incomingMessages) {
     const messageElement = findMessageElementById(message.discordMessageId);
     if (!messageElement) {
-      console.info("[Ghostscript] Debug overlay skipped because the message element is not mounted.", {
+      logGhostscriptDebug("debug-overlay", "attach-skipped", {
         discordMessageId: message.discordMessageId,
+        reason: "message-element-not-mounted",
       });
       continue;
     }
@@ -390,7 +444,7 @@ export async function renderDebugOverlayOnAllMessages(messages: GhostscriptThrea
     overlayCount += 1;
   }
 
-  console.info("[Ghostscript] Debug overlay attached to messages:", {
+  logGhostscriptDebug("debug-overlay", "attach-complete", {
     overlayCount,
     removedOverlayCount,
   });

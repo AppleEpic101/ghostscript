@@ -7,6 +7,7 @@ import {
   type SupportedTransportConfigId,
 } from "@ghostscript/shared";
 import { getGhostscriptApiBaseUrl } from "./apiBaseUrl";
+import { logGhostscriptDebug } from "./debugLog";
 
 const DEFAULT_ENCODING_CONFIG: LLMEncodingConfig = {
   configId: DEFAULT_TRANSPORT_CONFIG_ID,
@@ -55,15 +56,38 @@ export function getSupportedEncodingConfigs() {
 }
 
 export async function encodeBitstringAsCoverText(params: EncodeRequest) {
+  logGhostscriptDebug("llm-bridge", "encode-request-start", {
+    configId: params.config.configId,
+    promptLength: params.prompt.length,
+    bitstringLength: params.bitstring.length,
+    wordTarget: params.wordTarget,
+  });
   const response = await requestBridgeJson<EncodeResponse>("/encode", params);
+  logGhostscriptDebug("llm-bridge", "encode-request-complete", {
+    configId: params.config.configId,
+    visibleText: response.visibleText,
+    visibleTextLength: response.visibleText.length,
+  });
   return response.visibleText.trim();
 }
 
 export async function decodeCoverTextToBitstring(params: DecodeVisibleTextParams) {
+  logGhostscriptDebug("llm-bridge", "decode-request-start", {
+    configId: params.config.configId,
+    promptLength: params.prompt.length,
+    visibleText: params.visibleText,
+    visibleTextLength: params.visibleText.length,
+  });
   const response = await requestBridgeJson<DecodeResponse>("/decode", {
     visibleText: params.visibleText,
     prompt: params.prompt,
     config: params.config,
+  });
+
+  logGhostscriptDebug("llm-bridge", "decode-request-complete", {
+    configId: params.config.configId,
+    bitstringLength: response.bitstring?.length ?? 0,
+    recoveredBitstring: response.bitstring,
   });
 
   return response.bitstring;
@@ -116,6 +140,10 @@ async function requestBridgeJson<T>(path: string, body: unknown): Promise<T> {
       body: JSON.stringify(body),
     });
   } catch (error) {
+    logGhostscriptDebug("llm-bridge", "request-failed", {
+      path,
+      error: error instanceof Error ? error.message : "Unknown fetch failure.",
+    });
     if (error instanceof TypeError) {
       throw new Error(
         `Unable to reach the Ghostscript API at ${baseUrl}. Confirm the configured endpoint is reachable and reload the extension if its URL changed.`,
@@ -128,6 +156,11 @@ async function requestBridgeJson<T>(path: string, body: unknown): Promise<T> {
   const payload = (await response.json().catch(() => null)) as { error?: string } | null;
 
   if (!response.ok) {
+    logGhostscriptDebug("llm-bridge", "request-rejected", {
+      path,
+      status: response.status,
+      error: payload?.error ?? "Ghostscript LLM bridge request failed.",
+    });
     throw new Error(payload?.error ?? "Ghostscript LLM bridge request failed.");
   }
 
