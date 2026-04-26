@@ -90,6 +90,14 @@ test("debug presentation prefers decrypted plaintext when a message has been dec
       status: "tampered",
       plaintext: null,
     }),
+    "Ghostscript recovered a framed message here, but it failed authentication.",
+  );
+
+  assert.equal(
+    getPreferredDebugMessageText({
+      status: null,
+      plaintext: null,
+    }),
     "this message was not decoded",
   );
 });

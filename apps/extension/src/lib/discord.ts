@@ -48,10 +48,8 @@ export function collectTwoPartyMessages(localUsername: string, partnerUsername: 
   }
 
   const elements = findMessageContainers();
-  const messages: GhostscriptThreadMessage[] = [];
   const seenMessageIds = new Set<string>();
   let previousAuthor = "";
-  const minimumTimestamp = normalizeTimestampFloor(sinceTimestamp);
   const extractedMessages: Array<{
     threadId: string;
     discordMessageId: string;
@@ -74,28 +72,8 @@ export function collectTwoPartyMessages(localUsername: string, partnerUsername: 
     }
 
     previousAuthor = authorUsername;
-
-    const normalizedAuthor = normalizeUsername(authorUsername);
-    const normalizedLocal = normalizeUsername(localUsername);
-    const normalizedPartner = normalizeUsername(partnerUsername);
-
-    let direction: GhostscriptThreadMessage["direction"] = "other";
-    if (normalizedAuthor === normalizedLocal) {
-      direction = "outgoing";
-    } else if (normalizedAuthor === normalizedPartner) {
-      direction = "incoming";
-    }
-
-    if (direction === "other") {
-      continue;
-    }
-
     seenMessageIds.add(discordMessageId);
     const snowflakeTimestamp = getSnowflakeTimestamp(discordMessageId);
-
-    if (snowflakeTimestamp < minimumTimestamp) {
-      continue;
-    }
 
     extractedMessages.push({
       threadId,
@@ -106,32 +84,51 @@ export function collectTwoPartyMessages(localUsername: string, partnerUsername: 
     });
   }
 
+  return filterEligibleTwoPartyMessages(extractedMessages, localUsername, partnerUsername, sinceTimestamp);
+}
+
+export function filterEligibleTwoPartyMessages(
+  extractedMessages: Array<{
+    threadId: string;
+    discordMessageId: string;
+    authorUsername: string;
+    snowflakeTimestamp: string;
+    text: string;
+  }>,
+  localUsername: string,
+  partnerUsername: string,
+  sinceTimestamp?: string,
+) {
+  const minimumTimestamp = normalizeTimestampFloor(sinceTimestamp);
+  const timestampFilteredMessages = extractedMessages.filter(
+    (message) =>
+      !!message.authorUsername.trim() &&
+      !!message.text.trim() &&
+      message.snowflakeTimestamp >= minimumTimestamp,
+  );
   const authorClassification = classifyTwoPartyAuthors(
-    extractedMessages.map((message) => message.authorUsername),
+    timestampFilteredMessages.map((message) => message.authorUsername),
     localUsername,
     partnerUsername,
   );
 
-  for (const message of extractedMessages) {
-    const normalizedAuthor = normalizeUsername(message.authorUsername);
-    let direction: GhostscriptThreadMessage["direction"] = "other";
-    if (authorClassification.localAuthors.has(normalizedAuthor)) {
-      direction = "outgoing";
-    } else if (authorClassification.partnerAuthors.has(normalizedAuthor)) {
-      direction = "incoming";
-    }
+  return timestampFilteredMessages
+    .map((message) => {
+      const normalizedAuthor = normalizeUsername(message.authorUsername);
+      let direction: GhostscriptThreadMessage["direction"] = "other";
+      if (authorClassification.localAuthors.has(normalizedAuthor)) {
+        direction = "outgoing";
+      } else if (authorClassification.partnerAuthors.has(normalizedAuthor)) {
+        direction = "incoming";
+      }
 
-    if (direction === "other") {
-      continue;
-    }
-
-    messages.push({
-      ...message,
-      direction,
-    });
-  }
-
-  return messages.sort(compareMessagesAscending);
+      return {
+        ...message,
+        direction,
+      };
+    })
+    .filter((message) => message.direction !== "other")
+    .sort(compareMessagesAscending);
 }
 
 export function classifyTwoPartyAuthors(authorUsernames: string[], localUsername: string, partnerUsername: string) {
@@ -338,32 +335,36 @@ export function renderDecodedMessageOverlay(params: {
   }
 }
 
-export async function renderDebugOverlayOnAllMessages(partnerUsername: string, sinceTimestamp?: string) {
+export async function renderDebugOverlayOnAllMessages(messages: GhostscriptThreadMessage[]) {
   const threadId = getCurrentDiscordThreadId();
   const conversation = threadId ? await readConversationState(threadId) : null;
-  const messageElements = findMessageContainers();
+  const incomingMessages = messages.filter((message) => message.direction === "incoming");
+  const eligibleMessageIds = new Set(incomingMessages.map((message) => message.discordMessageId));
   let overlayCount = 0;
-  const minimumTimestamp = normalizeTimestampFloor(sinceTimestamp);
+  let removedOverlayCount = 0;
 
-  for (const messageElement of messageElements) {
-    const discordMessageId = extractMessageId(messageElement);
-    if (!discordMessageId) {
+  for (const existingOverlay of document.querySelectorAll<HTMLElement>("[data-ghostscript-debug-overlay]")) {
+    const overlayMessageId = existingOverlay.dataset.ghostscriptMessageId ?? "";
+    if (eligibleMessageIds.has(overlayMessageId)) {
       continue;
     }
 
+    existingOverlay.remove();
+    removedOverlayCount += 1;
+  }
+
+  for (const message of incomingMessages) {
+    const messageElement = findMessageElementById(message.discordMessageId);
+    if (!messageElement) {
+      console.info("[Ghostscript] Debug overlay skipped because the message element is not mounted.", {
+        discordMessageId: message.discordMessageId,
+      });
+      continue;
+    }
+
+    const discordMessageId = message.discordMessageId;
     const contentElement = findMessageContentElement(messageElement);
-    const authorUsername = extractAuthorUsername(messageElement) || "Unknown author";
-    const normalizedAuthor = normalizeUsername(authorUsername);
-    const normalizedPartner = normalizeUsername(partnerUsername);
-    if (!usernamesProbablyMatch(normalizedAuthor, normalizedPartner)) {
-      continue;
-    }
-
-    const snowflakeTimestamp = getSnowflakeTimestamp(discordMessageId);
-    if (snowflakeTimestamp < minimumTimestamp) {
-      continue;
-    }
-
+    const authorUsername = message.authorUsername;
     const decodedMessage = conversation?.decodedMessages[discordMessageId] ?? null;
     const debugText = getPreferredDebugMessageText({
       status: decodedMessage?.status ?? null,
@@ -391,6 +392,7 @@ export async function renderDebugOverlayOnAllMessages(partnerUsername: string, s
 
   console.info("[Ghostscript] Debug overlay attached to messages:", {
     overlayCount,
+    removedOverlayCount,
   });
 }
 

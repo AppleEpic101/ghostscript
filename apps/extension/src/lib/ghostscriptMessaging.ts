@@ -145,20 +145,28 @@ export async function syncGhostscriptConversation(params: {
     await setPendingSend(threadId, null);
   }
 
+  const pairingEstablishedAt = getPairingEstablishedAt(params.pairing);
   const messages = collectTwoPartyMessages(
     params.localUsername,
     params.partnerUsername,
-    getPairingEstablishedAt(params.pairing),
+    pairingEstablishedAt,
   );
-  await renderDebugOverlayOnAllMessages(params.partnerUsername, getPairingEstablishedAt(params.pairing));
+  console.info("[Ghostscript] Sync collected in-scope thread messages.", {
+    threadId,
+    pairingEstablishedAt,
+    messageCount: messages.length,
+    incomingCount: messages.filter((message) => message.direction === "incoming").length,
+    outgoingCount: messages.filter((message) => message.direction === "outgoing").length,
+  });
+  await renderDebugOverlayOnAllMessages(messages);
   await cacheConversationMessages(threadId, messages);
 
   await reconcilePendingSend(messages);
   const conversation = await readConversationState(threadId);
   await applySuppressedMessages(threadId);
   await decodeIncomingMessages(params, messages, conversation.suppressedMessageIds);
-  await restoreDecodedMessageOverlays(threadId);
-  await renderDebugOverlayOnAllMessages(params.partnerUsername, getPairingEstablishedAt(params.pairing));
+  await restoreDecodedMessageOverlays(threadId, messages);
+  await renderDebugOverlayOnAllMessages(messages);
 }
 
 async function reconcilePendingSend(messages: GhostscriptThreadMessage[]) {
@@ -214,10 +222,29 @@ async function decodeIncomingMessages(
 
   for (const message of messages) {
     if (message.direction !== "incoming") {
+      console.info("[Ghostscript] Decode skipped.", {
+        threadId,
+        discordMessageId: message.discordMessageId,
+        reason: "not-incoming",
+      });
       continue;
     }
 
-    if (suppressedMessageIds.includes(message.discordMessageId) || conversation.decodedMessages[message.discordMessageId]) {
+    if (suppressedMessageIds.includes(message.discordMessageId)) {
+      console.info("[Ghostscript] Decode skipped.", {
+        threadId,
+        discordMessageId: message.discordMessageId,
+        reason: "suppressed",
+      });
+      continue;
+    }
+
+    if (conversation.decodedMessages[message.discordMessageId]) {
+      console.info("[Ghostscript] Decode skipped.", {
+        threadId,
+        discordMessageId: message.discordMessageId,
+        reason: "already-processed",
+      });
       continue;
     }
 
@@ -227,9 +254,15 @@ async function decodeIncomingMessages(
     const cachedHistoryWindow = buildBoundedConversationWindow(cachedPriorMessages);
     const historyWindows = buildDecodeHistoryWindows(visibleHistoryWindow, cachedHistoryWindow);
 
-    if (historyWindows.length === 0) {
-      continue;
-    }
+    console.info("[Ghostscript] Decode attempting.", {
+      threadId,
+      discordMessageId: message.discordMessageId,
+      visibleHistoryMessageCount: visibleHistoryWindow.length,
+      cachedHistoryMessageCount: cachedHistoryWindow.length,
+      historyWindowCount: historyWindows.length,
+    });
+
+    const diagnostics: Array<{ outcome: string; configId: string; historyWindowSize: number; error?: string }> = [];
     const decodeResult = await attemptIncomingMessageDecode({
       visibleText: message.text,
       coverTopic: params.pairing.defaultCoverTopic ?? "general chat",
@@ -240,9 +273,23 @@ async function decodeIncomingMessages(
       decodeBitstring: decodeCoverTextToBitstring,
       decryptEnvelope: decryptMessageEnvelope,
       fingerprintPrompt: fingerprintTransportPrompt,
+      onAttempt(event) {
+        diagnostics.push({
+          outcome: event.outcome,
+          configId: event.configId,
+          historyWindowSize: event.historyWindowSize,
+          error: event.error,
+        });
+      },
     });
 
     if (!decodeResult) {
+      console.info("[Ghostscript] Decode completed without a recoverable Ghostscript payload.", {
+        threadId,
+        discordMessageId: message.discordMessageId,
+        diagnostics,
+        outcome: "not-decoded",
+      });
       continue;
     }
 
@@ -251,6 +298,7 @@ async function decodeIncomingMessages(
         threadId,
         discordMessageId: message.discordMessageId,
         plaintext: decodeResult.plaintext,
+        diagnostics,
       });
       await storeDecodedMessage(threadId, message.discordMessageId, {
         status: "decoded",
@@ -277,6 +325,12 @@ async function decodeIncomingMessages(
     }
 
     if (decodeResult.status === "tampered") {
+      console.info("[Ghostscript] Decode recovered a framed payload but authentication failed.", {
+        threadId,
+        discordMessageId: message.discordMessageId,
+        diagnostics,
+        outcome: "tampered",
+      });
       await storeDecodedMessage(threadId, message.discordMessageId, {
         status: "tampered",
         plaintext: null,
@@ -302,10 +356,17 @@ async function decodeIncomingMessages(
   }
 }
 
-async function restoreDecodedMessageOverlays(threadId: string) {
+async function restoreDecodedMessageOverlays(threadId: string, messages: GhostscriptThreadMessage[]) {
   const conversation = await readConversationState(threadId);
+  const eligibleIncomingMessageIds = new Set(
+    messages.filter((message) => message.direction === "incoming").map((message) => message.discordMessageId),
+  );
 
   for (const [discordMessageId, decodedMessage] of Object.entries(conversation.decodedMessages)) {
+    if (!eligibleIncomingMessageIds.has(discordMessageId)) {
+      continue;
+    }
+
     renderStoredDecodedMessage(threadId, discordMessageId, decodedMessage);
   }
 }

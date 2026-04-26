@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { classifyTwoPartyAuthors } from "./discord";
+import { classifyTwoPartyAuthors, filterEligibleTwoPartyMessages } from "./discord";
 
 test("classifyTwoPartyAuthors matches punctuation and spacing differences in Discord names", () => {
   const classification = classifyTwoPartyAuthors(
@@ -22,4 +22,62 @@ test("classifyTwoPartyAuthors infers the partner in a two-author thread when onl
 
   assert.deepEqual(Array.from(classification.localAuthors), ["casey river"]);
   assert.deepEqual(Array.from(classification.partnerAuthors), ["weekend coffee"]);
+});
+
+test("filterEligibleTwoPartyMessages keeps only post-link partner and local messages with stable order", () => {
+  const messages = filterEligibleTwoPartyMessages(
+    [
+      {
+        threadId: "thread-1",
+        discordMessageId: "101",
+        authorUsername: "John Smith",
+        snowflakeTimestamp: "2026-04-26T07:34:59.000Z",
+        text: "before link",
+      },
+      {
+        threadId: "thread-1",
+        discordMessageId: "102",
+        authorUsername: "Casey River",
+        snowflakeTimestamp: "2026-04-26T07:35:01.000Z",
+        text: "after link one",
+      },
+      {
+        threadId: "thread-1",
+        discordMessageId: "103",
+        authorUsername: "John Smith",
+        snowflakeTimestamp: "2026-04-26T07:35:02.000Z",
+        text: "after link two",
+      },
+      {
+        threadId: "thread-1",
+        discordMessageId: "104",
+        authorUsername: "Random Person",
+        snowflakeTimestamp: "2026-04-26T07:35:03.000Z",
+        text: "ignore me",
+      },
+    ],
+    "casey_river",
+    "john.smith",
+    "2026-04-26T07:35:00.000Z",
+  );
+
+  assert.deepEqual(
+    messages.map((message) => ({
+      discordMessageId: message.discordMessageId,
+      direction: message.direction,
+      text: message.text,
+    })),
+    [
+      {
+        discordMessageId: "102",
+        direction: "outgoing",
+        text: "after link one",
+      },
+      {
+        discordMessageId: "103",
+        direction: "incoming",
+        text: "after link two",
+      },
+    ],
+  );
 });

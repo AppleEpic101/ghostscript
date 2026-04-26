@@ -31,6 +31,12 @@ export async function attemptIncomingMessageDecode(params: {
   decodeBitstring: (params: DecodeVisibleTextParams) => Promise<string | null>;
   decryptEnvelope: (envelope: ReturnType<typeof deserializeEnvelopeFromBitstring>, material: SessionCryptoMaterial) => Promise<string>;
   fingerprintPrompt: (prompt: string) => Promise<string>;
+  onAttempt?: (event: {
+    outcome: "decoded" | "tampered" | "no-bitstring" | "bridge-error";
+    configId: SupportedTransportConfigId;
+    historyWindowSize: number;
+    error?: string;
+  }) => void;
 }) {
   let tamperedPromptFingerprint: string | null = null;
   let tamperedConfigId: SupportedTransportConfigId = params.defaultConfigId;
@@ -50,17 +56,33 @@ export async function attemptIncomingMessageDecode(params: {
           prompt,
           config: encodingConfig,
         });
-      } catch {
+      } catch (error) {
+        params.onAttempt?.({
+          outcome: "bridge-error",
+          configId: encodingConfig.configId,
+          historyWindowSize: historyWindow.length,
+          error: error instanceof Error ? error.message : "Unknown decode bridge error.",
+        });
         continue;
       }
 
       if (!bitstring) {
+        params.onAttempt?.({
+          outcome: "no-bitstring",
+          configId: encodingConfig.configId,
+          historyWindowSize: historyWindow.length,
+        });
         continue;
       }
 
       try {
         const envelope = deserializeEnvelopeFromBitstring(bitstring);
         const plaintext = await params.decryptEnvelope(envelope, params.material);
+        params.onAttempt?.({
+          outcome: "decoded",
+          configId: encodingConfig.configId,
+          historyWindowSize: historyWindow.length,
+        });
         return {
           status: "decoded" as const,
           plaintext,
@@ -70,6 +92,11 @@ export async function attemptIncomingMessageDecode(params: {
       } catch {
         try {
           deserializeEnvelopeFromBitstring(bitstring);
+          params.onAttempt?.({
+            outcome: "tampered",
+            configId: encodingConfig.configId,
+            historyWindowSize: historyWindow.length,
+          });
           tamperedPromptFingerprint ??= promptFingerprint;
           tamperedConfigId = encodingConfig.configId;
         } catch {
