@@ -28,21 +28,6 @@ export function getDecodedMessageBody(params: {
   };
 }
 
-export function getPreferredDebugMessageText(params: {
-  status: "decoded" | "tampered" | null;
-  plaintext: string | null;
-}) {
-  if (params.status === "tampered") {
-    return "Ghostscript recovered a framed message here, but it failed authentication.";
-  }
-
-  if (params.status === "decoded" && params.plaintext) {
-    return params.plaintext;
-  }
-
-  return "this message was not decoded";
-}
-
 export function buildDecodeHistoryWindows(
   visibleHistoryWindow: GhostscriptThreadMessage[],
   cachedHistoryWindow: GhostscriptThreadMessage[],

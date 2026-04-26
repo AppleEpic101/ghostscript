@@ -1,11 +1,9 @@
 import type { GhostscriptThreadMessage } from "@ghostscript/shared";
 import {
   getDecodedMessageBody,
-  getPreferredDebugMessageText,
   type DecodedGhostscriptMessageView,
 } from "./decodedMessages";
 import { logGhostscriptDebug } from "./debugLog";
-import { readConversationState } from "./ghostscriptState";
 import { setDecodedMessageActiveView } from "./ghostscriptState";
 
 const MESSAGE_CONTAINER_SELECTORS = [
@@ -416,68 +414,6 @@ export function renderDecodedMessageOverlay(params: {
       void setDecodedMessageActiveView(params.threadId, params.discordMessageId, nextView);
     };
   }
-}
-
-export async function renderDebugOverlayOnAllMessages(messages: GhostscriptThreadMessage[]) {
-  const threadId = getCurrentDiscordThreadId();
-  const conversation = threadId ? await readConversationState(threadId) : null;
-  const incomingMessages = messages.filter((message) => message.direction === "incoming");
-  const eligibleMessageIds = new Set(incomingMessages.map((message) => message.discordMessageId));
-  let overlayCount = 0;
-  let removedOverlayCount = 0;
-
-  for (const existingOverlay of document.querySelectorAll<HTMLElement>("[data-ghostscript-debug-overlay]")) {
-    const overlayMessageId = existingOverlay.dataset.ghostscriptMessageId ?? "";
-    if (eligibleMessageIds.has(overlayMessageId)) {
-      continue;
-    }
-
-    existingOverlay.remove();
-    removedOverlayCount += 1;
-  }
-
-  for (const message of incomingMessages) {
-    const messageElement = findMessageElementById(message.discordMessageId);
-    if (!messageElement) {
-      logGhostscriptDebug("debug-overlay", "attach-skipped", {
-        discordMessageId: message.discordMessageId,
-        reason: "message-element-not-mounted",
-      });
-      continue;
-    }
-
-    const discordMessageId = message.discordMessageId;
-    const contentElement = findMessageContentElement(messageElement);
-    const authorUsername = message.authorUsername;
-    const decodedMessage = conversation?.decodedMessages[discordMessageId] ?? null;
-    const debugText = getPreferredDebugMessageText({
-      status: decodedMessage?.status ?? null,
-      plaintext: decodedMessage?.plaintext ?? null,
-    });
-    const overlayAnchor = contentElement?.parentElement ?? messageElement;
-    let overlay = overlayAnchor.querySelector<HTMLElement>("[data-ghostscript-debug-overlay]");
-    if (!overlay) {
-      overlay = document.createElement("div");
-      overlay.dataset.ghostscriptDebugOverlay = "true";
-      overlay.className = "ghostscript-decoded-overlay";
-      overlayAnchor.appendChild(overlay);
-    }
-
-    overlay.dataset.ghostscriptMessageId = discordMessageId;
-    overlay.innerHTML = `
-      <div class="ghostscript-decoded-overlay__header">
-        <span class="ghostscript-decoded-overlay__badge">Ghostscript Debug</span>
-        <span class="ghostscript-decoded-overlay__state">Attached</span>
-      </div>
-      <p class="ghostscript-decoded-overlay__body">Message ${discordMessageId} · ${authorUsername}\n${debugText}</p>
-    `;
-    overlayCount += 1;
-  }
-
-  logGhostscriptDebug("debug-overlay", "attach-complete", {
-    overlayCount,
-    removedOverlayCount,
-  });
 }
 
 function findMessageContainers() {

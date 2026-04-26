@@ -7,7 +7,6 @@ import {
   collectTwoPartyMessages,
   getCurrentDiscordThreadId,
   hideDiscordMessageLocally,
-  renderDebugOverlayOnAllMessages,
   renderDecodedMessageOverlay,
   sendTextThroughDiscord,
 } from "./discord";
@@ -189,7 +188,6 @@ export async function syncGhostscriptConversation(params: {
     incomingCount: messages.filter((message) => message.direction === "incoming").length,
     outgoingCount: messages.filter((message) => message.direction === "outgoing").length,
   });
-  await renderDebugOverlayOnAllMessages(messages);
   await cacheConversationMessages(threadId, messages);
 
   await reconcilePendingSend(messages);
@@ -197,7 +195,6 @@ export async function syncGhostscriptConversation(params: {
   await applySuppressedMessages(threadId);
   await decodeIncomingMessages(params, messages, conversation.suppressedMessageIds);
   await restoreDecodedMessageOverlays(threadId, messages);
-  await renderDebugOverlayOnAllMessages(messages);
 }
 
 async function reconcilePendingSend(messages: GhostscriptThreadMessage[]) {
