@@ -72,6 +72,64 @@ test("incoming decode succeeds with cached history when the visible DOM history 
   });
 });
 
+test("incoming decode succeeds for the first post-pairing message with no prior history", async () => {
+  const alice = await generateIdentityBundle();
+  const bob = await generateIdentityBundle();
+  const config = getDefaultEncodingConfig();
+  const aliceMaterial: SessionCryptoMaterial = {
+    sessionId: "session-1",
+    threadId: "thread-1",
+    localParticipantId: "alice",
+    counterpartParticipantId: "bob",
+    localTransportPrivateKey: alice.transportPrivateKey,
+    counterpartTransportPublicKey: bob.transportPublicKey,
+  };
+  const bobMaterial: SessionCryptoMaterial = {
+    sessionId: "session-1",
+    threadId: "thread-1",
+    localParticipantId: "bob",
+    counterpartParticipantId: "alice",
+    localTransportPrivateKey: bob.transportPrivateKey,
+    counterpartTransportPublicKey: alice.transportPublicKey,
+  };
+
+  const prompt = buildConversationPrompt({
+    coverTopic: "coffee plans",
+    messages: [],
+  });
+  const envelope = await encryptMessageEnvelope("Meet by the side entrance.", 11, aliceMaterial);
+  const visibleText = encodeBitstringAsRankedText({
+    prompt,
+    bitstring: serializeEnvelopeToBitstring(envelope),
+    wordTarget: 20,
+    config,
+  });
+
+  const decodeResult = await attemptIncomingMessageDecode({
+    visibleText,
+    coverTopic: "coffee plans",
+    historyWindows: buildDecodeHistoryWindows([], []),
+    material: bobMaterial,
+    encodingConfigs: [config],
+    defaultConfigId: config.configId,
+    decodeBitstring: async ({ prompt: decodePrompt, visibleText: decodeVisibleText, config: decodeConfig }) =>
+      decodeRankedTextToBitstring({
+        prompt: decodePrompt,
+        visibleText: decodeVisibleText,
+        config: decodeConfig,
+      }),
+    decryptEnvelope: decryptMessageEnvelope,
+    fingerprintPrompt: async (candidatePrompt) => candidatePrompt,
+  });
+
+  assert.deepEqual(decodeResult, {
+    status: "decoded",
+    plaintext: "Meet by the side entrance.",
+    promptFingerprint: prompt,
+    configId: config.configId,
+  });
+});
+
 function createMessage(discordMessageId: string, authorUsername: string, text: string): GhostscriptThreadMessage {
   return {
     threadId: "thread-1",

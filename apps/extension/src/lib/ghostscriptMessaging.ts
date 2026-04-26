@@ -150,7 +150,7 @@ export async function syncGhostscriptConversation(params: {
     params.partnerUsername,
     getPairingEstablishedAt(params.pairing),
   );
-  renderDebugOverlayOnAllMessages(params.partnerUsername);
+  await renderDebugOverlayOnAllMessages(params.partnerUsername, getPairingEstablishedAt(params.pairing));
   await cacheConversationMessages(threadId, messages);
 
   await reconcilePendingSend(messages);
@@ -158,6 +158,7 @@ export async function syncGhostscriptConversation(params: {
   await applySuppressedMessages(threadId);
   await decodeIncomingMessages(params, messages, conversation.suppressedMessageIds);
   await restoreDecodedMessageOverlays(threadId);
+  await renderDebugOverlayOnAllMessages(params.partnerUsername, getPairingEstablishedAt(params.pairing));
 }
 
 async function reconcilePendingSend(messages: GhostscriptThreadMessage[]) {

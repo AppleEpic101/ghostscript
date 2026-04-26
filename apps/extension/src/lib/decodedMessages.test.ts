@@ -5,6 +5,7 @@ import { readConversationState } from "./ghostscriptState";
 import {
   buildDecodeHistoryWindows,
   getDecodedMessageBody,
+  getPreferredDebugMessageText,
   normalizeDecodedMessageActiveView,
 } from "./decodedMessages";
 import { writeStorageValue } from "./storage";
@@ -73,6 +74,31 @@ test("cover-text presentation uses the visible text and marks the highlighted mo
     text: "I might stop for coffee first.",
     isCoverText: true,
   });
+});
+
+test("debug presentation prefers decrypted plaintext when a message has been decoded", () => {
+  assert.equal(
+    getPreferredDebugMessageText({
+      status: "decoded",
+      plaintext: "Meet at the station.",
+    }),
+    "Meet at the station.",
+  );
+
+  assert.equal(
+    getPreferredDebugMessageText({
+      status: "tampered",
+      plaintext: null,
+    }),
+    "this message was not decoded",
+  );
+});
+
+test("decode history windows still attempt decode when there is no prior conversation context", () => {
+  const historyWindows = buildDecodeHistoryWindows([], []);
+
+  assert.equal(historyWindows.length, 1);
+  assert.deepEqual(historyWindows[0], []);
 });
 
 test("decode history windows keep cached context available when the visible DOM is truncated", () => {

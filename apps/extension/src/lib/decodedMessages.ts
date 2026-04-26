@@ -28,6 +28,17 @@ export function getDecodedMessageBody(params: {
   };
 }
 
+export function getPreferredDebugMessageText(params: {
+  status: "decoded" | "tampered" | null;
+  plaintext: string | null;
+}) {
+  if (params.status === "decoded" && params.plaintext) {
+    return params.plaintext;
+  }
+
+  return "this message was not decoded";
+}
+
 export function buildDecodeHistoryWindows(
   visibleHistoryWindow: GhostscriptThreadMessage[],
   cachedHistoryWindow: GhostscriptThreadMessage[],
@@ -35,6 +46,7 @@ export function buildDecodeHistoryWindows(
   const windows: GhostscriptThreadMessage[][] = [];
 
   if (cachedHistoryWindow.length === 0 && visibleHistoryWindow.length === 0) {
+    windows.push([]);
     return windows;
   }
 

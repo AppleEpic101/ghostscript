@@ -1,5 +1,10 @@
 import type { GhostscriptThreadMessage } from "@ghostscript/shared";
-import { getDecodedMessageBody, type DecodedGhostscriptMessageView } from "./decodedMessages";
+import {
+  getDecodedMessageBody,
+  getPreferredDebugMessageText,
+  type DecodedGhostscriptMessageView,
+} from "./decodedMessages";
+import { readConversationState } from "./ghostscriptState";
 import { setDecodedMessageActiveView } from "./ghostscriptState";
 
 const MESSAGE_CONTAINER_SELECTORS = [
@@ -333,9 +338,12 @@ export function renderDecodedMessageOverlay(params: {
   }
 }
 
-export function renderDebugOverlayOnAllMessages(partnerUsername: string) {
+export async function renderDebugOverlayOnAllMessages(partnerUsername: string, sinceTimestamp?: string) {
+  const threadId = getCurrentDiscordThreadId();
+  const conversation = threadId ? await readConversationState(threadId) : null;
   const messageElements = findMessageContainers();
   let overlayCount = 0;
+  const minimumTimestamp = normalizeTimestampFloor(sinceTimestamp);
 
   for (const messageElement of messageElements) {
     const discordMessageId = extractMessageId(messageElement);
@@ -351,7 +359,16 @@ export function renderDebugOverlayOnAllMessages(partnerUsername: string) {
       continue;
     }
 
-    const visibleText = extractMessageText(messageElement) || "(no text found)";
+    const snowflakeTimestamp = getSnowflakeTimestamp(discordMessageId);
+    if (snowflakeTimestamp < minimumTimestamp) {
+      continue;
+    }
+
+    const decodedMessage = conversation?.decodedMessages[discordMessageId] ?? null;
+    const debugText = getPreferredDebugMessageText({
+      status: decodedMessage?.status ?? null,
+      plaintext: decodedMessage?.plaintext ?? null,
+    });
     const overlayAnchor = contentElement?.parentElement ?? messageElement;
     let overlay = overlayAnchor.querySelector<HTMLElement>("[data-ghostscript-debug-overlay]");
     if (!overlay) {
@@ -367,7 +384,7 @@ export function renderDebugOverlayOnAllMessages(partnerUsername: string) {
         <span class="ghostscript-decoded-overlay__badge">Ghostscript Debug</span>
         <span class="ghostscript-decoded-overlay__state">Attached</span>
       </div>
-      <p class="ghostscript-decoded-overlay__body">Message ${discordMessageId} · ${authorUsername}\n${visibleText}</p>
+      <p class="ghostscript-decoded-overlay__body">Message ${discordMessageId} · ${authorUsername}\n${debugText}</p>
     `;
     overlayCount += 1;
   }
