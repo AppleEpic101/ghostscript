@@ -1,41 +1,54 @@
 import React, { useEffect, useState } from "react";
-import ReactDOM from "react-dom/client";
+import ReactDOM, { type Root } from "react-dom/client";
 import { PAIRING_STATUS_LABELS } from "@ghostscript/shared";
 import { applyInviteSessionSnapshot, readExtensionState } from "../lib/pairingStore";
 import { getInviteSessionStatus } from "../lib/pairingApi";
 import overlayStyles from "./styles.css?inline";
 
 const SESSION_SYNC_POLL_MS = 5000;
+const OVERLAY_HOST_ID = "ghostscript-status-root";
+const DISCORD_DM_ROUTE_PATTERN = /^\/channels\/@me\/[^/]+$/;
 
-function GhostscriptStatusOverlay() {
-  const [status, setStatus] = useState("Not paired");
-  const [contactName, setContactName] = useState("No active connection");
-  const [coverTopic, setCoverTopic] = useState("Set after pairing");
-  const [detail, setDetail] = useState("Ghostscript will treat a consumed invite as ready for Discord messaging.");
+let overlayRoot: Root | null = null;
+let routeObserverAbortController: AbortController | null = null;
+let lastKnownRoute = getCurrentRoute();
+let visibilityCheckSequence = 0;
+let storageChangeListenerInstalled = false;
+
+interface OverlayState {
+  status: string;
+  contactName: string;
+  coverTopic: string;
+  detail: string;
+}
+
+const DEFAULT_OVERLAY_STATE: OverlayState = {
+  status: "Paired",
+  contactName: "Waiting for the other person",
+  coverTopic: "Not set yet",
+  detail: "This connection is ready. Ghostscript no longer waits for a manual verification step.",
+};
+
+function GhostscriptStatusOverlay({ onPairingLost }: { onPairingLost: () => void }) {
+  const [overlayState, setOverlayState] = useState<OverlayState>(DEFAULT_OVERLAY_STATE);
 
   async function refreshState() {
     const state = await readExtensionState();
     const activePairing = state.activePairing;
     const contact = state.contacts[0] ?? null;
 
-    if (!activePairing) {
-      setStatus("Not paired");
-      setContactName("No active connection");
-      setCoverTopic("Set after pairing");
-      setDetail("Open Ghostscript from the toolbar to create or join an invite.");
+    if (!activePairing || activePairing.status !== "paired") {
+      onPairingLost();
       return;
     }
 
-    setStatus(PAIRING_STATUS_LABELS[activePairing.status]);
-    setContactName(activePairing.counterpart?.displayName ?? contact?.displayName ?? "Waiting for the other person");
-    setCoverTopic(activePairing.defaultCoverTopic ?? contact?.defaultCoverTopic ?? "Not set yet");
-    setDetail(
-      activePairing.status === "paired"
-        ? "This connection is ready. Ghostscript no longer waits for a manual verification step."
-        : activePairing.status === "invalidated"
-          ? "This invite is no longer active. Re-pair from the extension popup."
-          : "Invite created. Share the code out of band, then return to Discord once they join.",
-    );
+    setOverlayState({
+      status: PAIRING_STATUS_LABELS[activePairing.status],
+      contactName:
+        activePairing.counterpart?.displayName ?? contact?.displayName ?? "Waiting for the other person",
+      coverTopic: activePairing.defaultCoverTopic ?? contact?.defaultCoverTopic ?? "Not set yet",
+      detail: "This connection is ready. Ghostscript no longer waits for a manual verification step.",
+    });
   }
 
   useEffect(() => {
@@ -45,9 +58,9 @@ function GhostscriptStatusOverlay() {
       const state = await readExtensionState();
       const activePairing = state.activePairing;
 
-      if (!activePairing) {
+      if (!activePairing || activePairing.status !== "paired") {
         if (!cancelled) {
-          await refreshState();
+          onPairingLost();
         }
         return;
       }
@@ -73,21 +86,21 @@ function GhostscriptStatusOverlay() {
       cancelled = true;
       window.clearInterval(intervalId);
     };
-  }, []);
+  }, [onPairingLost]);
 
   return (
     <>
       <style>{overlayStyles}</style>
       <section className="ghostscript-status-card" aria-label="Ghostscript pairing status">
         <h2>Ghostscript</h2>
-        <p>{detail}</p>
+        <p>{overlayState.detail}</p>
         <div className="ghostscript-status-meta">
           <span>Status</span>
-          <strong>{status}</strong>
+          <strong>{overlayState.status}</strong>
           <span>Contact</span>
-          <strong>{contactName}</strong>
+          <strong>{overlayState.contactName}</strong>
           <span>Topic</span>
-          <strong>{coverTopic}</strong>
+          <strong>{overlayState.coverTopic}</strong>
         </div>
       </section>
     </>
@@ -95,22 +108,146 @@ function GhostscriptStatusOverlay() {
 }
 
 function mountOverlay() {
-  let host = document.getElementById("ghostscript-status-root");
+  let host = document.getElementById(OVERLAY_HOST_ID);
 
   if (!host) {
     host = document.createElement("div");
-    host.id = "ghostscript-status-root";
+    host.id = OVERLAY_HOST_ID;
     host.className = "ghostscript-status-host";
     document.body.appendChild(host);
   }
 
-  ReactDOM.createRoot(host).render(
+  if (!overlayRoot) {
+    overlayRoot = ReactDOM.createRoot(host);
+  }
+
+  overlayRoot.render(
     <React.StrictMode>
-      <GhostscriptStatusOverlay />
+      <GhostscriptStatusOverlay
+        onPairingLost={() => {
+          void syncOverlayVisibility();
+        }}
+      />
     </React.StrictMode>,
   );
 }
 
+function unmountOverlay() {
+  overlayRoot?.unmount();
+  overlayRoot = null;
+  document.getElementById(OVERLAY_HOST_ID)?.remove();
+}
+
+function getCurrentRoute() {
+  return `${window.location.pathname}${window.location.search}${window.location.hash}`;
+}
+
+function isDiscordDmThreadRoute() {
+  return window.location.hostname === "discord.com" && DISCORD_DM_ROUTE_PATTERN.test(window.location.pathname);
+}
+
+async function shouldShowOverlay() {
+  if (!isDiscordDmThreadRoute()) {
+    return false;
+  }
+
+  const state = await readExtensionState();
+  return state.activePairing?.status === "paired";
+}
+
+async function syncOverlayVisibility() {
+  const sequence = ++visibilityCheckSequence;
+  const showOverlay = await shouldShowOverlay();
+
+  if (sequence !== visibilityCheckSequence) {
+    return;
+  }
+
+  if (showOverlay) {
+    mountOverlay();
+    return;
+  }
+
+  unmountOverlay();
+}
+
+function handleRouteChange() {
+  const nextRoute = getCurrentRoute();
+  if (nextRoute === lastKnownRoute) {
+    return;
+  }
+
+  lastKnownRoute = nextRoute;
+  void syncOverlayVisibility();
+}
+
+function installRouteObservers() {
+  if (routeObserverAbortController) {
+    return;
+  }
+
+  routeObserverAbortController = new AbortController();
+  const { signal } = routeObserverAbortController;
+
+  const wrapHistoryMethod = (methodName: "pushState" | "replaceState") => {
+    const originalMethod = window.history[methodName];
+
+    window.history[methodName] = function wrappedHistoryMethod(...args) {
+      const result = originalMethod.apply(this, args);
+      handleRouteChange();
+      return result;
+    };
+
+    signal.addEventListener(
+      "abort",
+      () => {
+        window.history[methodName] = originalMethod;
+      },
+      { once: true },
+    );
+  };
+
+  wrapHistoryMethod("pushState");
+  wrapHistoryMethod("replaceState");
+
+  window.addEventListener("popstate", handleRouteChange, { signal });
+  window.addEventListener("hashchange", handleRouteChange, { signal });
+
+  const observer = new MutationObserver(() => {
+    handleRouteChange();
+  });
+
+  observer.observe(document, {
+    childList: true,
+    subtree: true,
+  });
+
+  signal.addEventListener(
+    "abort",
+    () => {
+      observer.disconnect();
+    },
+    { once: true },
+  );
+}
+
+function installStorageObserver() {
+  if (storageChangeListenerInstalled) {
+    return;
+  }
+
+  storageChangeListenerInstalled = true;
+  chrome.storage.onChanged.addListener((_changes, areaName) => {
+    if (areaName !== "local") {
+      return;
+    }
+
+    void syncOverlayVisibility();
+  });
+}
+
 if (window.location.hostname === "discord.com") {
-  mountOverlay();
+  installRouteObservers();
+  installStorageObserver();
+  void syncOverlayVisibility();
 }

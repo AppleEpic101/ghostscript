@@ -131,6 +131,13 @@ export async function applyInviteSessionSnapshot(params: {
         contact.status = "invalidated";
       }
     }
+
+    await writePairingCache({
+      activePairing: null,
+      contacts,
+    });
+    await clearInviteDraft();
+    return null;
   }
 
   const nextActivePairing: ActivePairingState = {
@@ -165,6 +172,7 @@ export async function endLocalPairing(inviteCode: string) {
     activePairing: state.activePairing?.inviteCode === inviteCode ? null : state.activePairing,
     contacts,
   });
+  await clearInviteDraft();
 }
 
 async function writePairingCache(pairingCache: PairingCacheState) {

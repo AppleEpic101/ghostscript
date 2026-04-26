@@ -58,6 +58,13 @@ function PopupApp() {
 
         if (!cancelled) {
           await hydrateFromState();
+          if (snapshot.session.status === "invalidated") {
+            setStep("home");
+            setCoverTopic("");
+            setInviteCode("");
+            setFeedback("The other person left the lobby. This connection is closed.");
+            setError(null);
+          }
         }
       } catch (nextError) {
         if (!cancelled) {
@@ -87,9 +94,21 @@ function PopupApp() {
       setLobbyInviteCode(null);
       setLobbyParticipants([]);
       setLobbyDetail(null);
+      setCoverTopic("");
       return;
     }
 
+    if (state.activePairing.status === "invalidated") {
+      setCreatedCode(null);
+      setLobbyInviteCode(null);
+      setLobbyParticipants([]);
+      setLobbyDetail(null);
+      setStep("home");
+      setCoverTopic("");
+      return;
+    }
+
+    setCoverTopic(state.activePairing.defaultCoverTopic ?? "");
     setLobbyInviteCode(state.activePairing.inviteCode);
     setLobbyParticipants(
       [
@@ -275,6 +294,15 @@ function PopupApp() {
             <span>{lobbyInviteCode}</span>
             <small>Click to copy</small>
           </button>
+          <label className="popup-label">
+            <span>Concealed-instructions topic</span>
+            <textarea
+              className="popup-textarea popup-textarea--readonly"
+              value={coverTopic}
+              readOnly
+              aria-readonly="true"
+            />
+          </label>
           <p className="popup-copy popup-copy--tight">{lobbyDetail}</p>
           <div className="popup-lobby-list">
             {lobbyParticipants.map((participant) => (

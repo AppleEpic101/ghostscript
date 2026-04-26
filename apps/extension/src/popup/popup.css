@@ -108,6 +108,16 @@ textarea {
   resize: vertical;
 }
 
+.popup-textarea--readonly {
+  border: 1px solid #383a40;
+  color: #b5bac1;
+  resize: none;
+}
+
+.popup-textarea--readonly:focus {
+  box-shadow: 0 0 0 2px rgba(88, 101, 242, 0.35);
+}
+
 .popup-grid {
   display: grid;
   gap: 12px;
@@ -271,4 +281,3 @@ textarea {
   font-size: 12px;
   line-height: 1.4;
 }
-
