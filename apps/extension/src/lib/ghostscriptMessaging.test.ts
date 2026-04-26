@@ -133,3 +133,28 @@ test("isMatchingPendingOutgoingMessage does not accept an incoming message by vi
 
   assert.equal(matches, false);
 });
+
+test("isMatchingPendingOutgoingMessage accepts a visible-text-only weak match for a locally authored fallback message", () => {
+  const visibleText = "Coffee near the station still works for me.";
+  const expectedCoverText = appendInvisiblePayload(visibleText, "0101011100");
+
+  const matches = isMatchingPendingOutgoingMessage(
+    {
+      threadId: "thread-1",
+      discordMessageId: "1498000000000001003",
+      authorUsername: "bobby display variant",
+      snowflakeTimestamp: "2026-04-26T08:14:23.000Z",
+      text: visibleText,
+      direction: "other",
+    },
+    {
+      expectedCoverText,
+      startedAt: Date.parse("2026-04-26T08:14:18.000Z"),
+    },
+    {
+      authorMatchesLocal: true,
+    },
+  );
+
+  assert.equal(matches, true);
+});

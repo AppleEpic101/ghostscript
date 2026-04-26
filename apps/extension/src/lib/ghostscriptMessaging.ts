@@ -3,8 +3,11 @@ import { serializeEnvelopeToBitstring } from "./bitstream";
 import { compressBitstringForTransport } from "./bitCompression";
 import { decryptMessageEnvelope, encryptMessageEnvelope, type SessionCryptoMaterial } from "./crypto";
 import {
+  authorUsernameMatches,
   buildBoundedConversationWindow,
+  collectRawThreadMessages,
   collectTwoPartyMessages,
+  filterEligibleTwoPartyMessages,
   getCurrentDiscordThreadId,
   renderDecodedMessageOverlay,
   sendTextThroughDiscord,
@@ -208,7 +211,9 @@ export async function syncGhostscriptConversation(params: {
   }
 
   const pairingEstablishedAt = getPairingEstablishedAt(params.pairing);
-  const messages = collectTwoPartyMessages(
+  const rawMessages = collectRawThreadMessages(threadId);
+  const messages = filterEligibleTwoPartyMessages(
+    rawMessages,
     params.localUsername,
     params.partnerUsername,
     pairingEstablishedAt,
@@ -222,7 +227,7 @@ export async function syncGhostscriptConversation(params: {
   });
   await cacheConversationMessages(threadId, messages);
 
-  await reconcilePendingSend(messages);
+  await reconcilePendingSend(messages, rawMessages, params.localUsername, pairingEstablishedAt);
   const conversation = await readConversationState(threadId);
   const filteredPromptMessageCount = countFilteredPromptMessages(conversation.cachedMessages, conversation);
   logGhostscriptDebug("messaging", "sync-prompt-history-filtered", {
@@ -236,7 +241,18 @@ export async function syncGhostscriptConversation(params: {
   await restoreDecodedMessageOverlays(threadId, messages);
 }
 
-async function reconcilePendingSend(messages: GhostscriptThreadMessage[]) {
+async function reconcilePendingSend(
+  messages: GhostscriptThreadMessage[],
+  rawMessages: Array<{
+    threadId: string;
+    discordMessageId: string;
+    authorUsername: string;
+    snowflakeTimestamp: string;
+    text: string;
+  }>,
+  localUsername: string,
+  sinceTimestamp?: string,
+) {
   const threadId = getRequiredThreadId();
   const conversation = await readConversationState(threadId);
   const pendingSend = conversation.pendingSend;
@@ -246,25 +262,42 @@ async function reconcilePendingSend(messages: GhostscriptThreadMessage[]) {
   }
 
   const matchingOutgoingMessage = messages.find((message) => isMatchingPendingOutgoingMessage(message, pendingSend));
+  const fallbackOutgoingMessage =
+    matchingOutgoingMessage ??
+    rawMessages
+      .filter((message) => !sinceTimestamp || message.snowflakeTimestamp >= sinceTimestamp)
+      .find((message) =>
+        isMatchingPendingOutgoingMessage(
+          {
+            ...message,
+            direction: "other",
+          },
+          pendingSend,
+          {
+            authorMatchesLocal: authorUsernameMatches(message.authorUsername, localUsername),
+          },
+        ),
+      );
 
-  if (matchingOutgoingMessage) {
+  const confirmedMessage = matchingOutgoingMessage ?? fallbackOutgoingMessage;
+  if (confirmedMessage) {
     if (pendingSend.encodedMessage) {
       await storeConfirmedEncodedMessage(threadId, pendingSend.encodedMessage);
     }
-    await storeDecodedMessage(threadId, matchingOutgoingMessage.discordMessageId, {
+    await storeDecodedMessage(threadId, confirmedMessage.discordMessageId, {
       status: "decoded",
       plaintext: pendingSend.plaintext,
-      visibleText: pendingSend.encodedMessage?.visibleText ?? matchingOutgoingMessage.text,
+      visibleText: pendingSend.encodedMessage?.visibleText ?? confirmedMessage.text,
       encodedMessage: pendingSend.encodedMessage,
       processedAt: new Date().toISOString(),
       activeView: "decrypted",
     });
     renderDecodedMessageOverlay({
       threadId,
-      discordMessageId: matchingOutgoingMessage.discordMessageId,
+      discordMessageId: confirmedMessage.discordMessageId,
       status: "decoded",
       plaintext: pendingSend.plaintext,
-      visibleText: pendingSend.encodedMessage?.visibleText ?? matchingOutgoingMessage.text,
+      visibleText: pendingSend.encodedMessage?.visibleText ?? confirmedMessage.text,
       activeView: "decrypted",
     });
     await setPendingSend(threadId, {
@@ -529,6 +562,9 @@ function buildVisiblePayloadSubmission(compressedTransportBitstring: string) {
 export function isMatchingPendingOutgoingMessage(
   message: GhostscriptThreadMessage,
   pendingSend: Pick<PendingSendState, "expectedCoverText" | "startedAt">,
+  options?: {
+    authorMatchesLocal?: boolean;
+  },
 ) {
   const messageTimestamp = Date.parse(message.snowflakeTimestamp);
   if (
@@ -546,10 +582,10 @@ export function isMatchingPendingOutgoingMessage(
   );
 
   if (normalizedMessageText === normalizedExpectedText) {
-    return message.direction !== "incoming";
+    return message.direction !== "incoming" || options?.authorMatchesLocal === true;
   }
 
-  if (message.direction !== "outgoing") {
+  if (message.direction !== "outgoing" && options?.authorMatchesLocal !== true) {
     return false;
   }
 

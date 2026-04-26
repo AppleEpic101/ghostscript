@@ -54,6 +54,30 @@ export function collectTwoPartyMessages(localUsername: string, partnerUsername: 
     return [];
   }
 
+  const extractedMessages = collectRawThreadMessages(threadId);
+
+  logGhostscriptDebug("collector", "raw-messages-extracted", {
+    threadId,
+    localUsername,
+    partnerUsername,
+    sinceTimestamp: sinceTimestamp ?? null,
+    extractedCount: extractedMessages.length,
+    extractedMessages: extractedMessages.map((message) => ({
+      discordMessageId: message.discordMessageId,
+      authorUsername: message.authorUsername,
+      snowflakeTimestamp: message.snowflakeTimestamp,
+      text: message.text,
+    })),
+  });
+
+  return filterEligibleTwoPartyMessages(extractedMessages, localUsername, partnerUsername, sinceTimestamp);
+}
+
+export function collectRawThreadMessages(threadId = getCurrentDiscordThreadId()) {
+  if (!threadId) {
+    return [];
+  }
+
   const elements = findMessageContainers();
   const seenMessageIds = new Set<string>();
   let previousAuthor = "";
@@ -80,32 +104,16 @@ export function collectTwoPartyMessages(localUsername: string, partnerUsername: 
 
     previousAuthor = authorUsername;
     seenMessageIds.add(discordMessageId);
-    const snowflakeTimestamp = getSnowflakeTimestamp(discordMessageId);
-
     extractedMessages.push({
       threadId,
       discordMessageId,
       authorUsername,
-      snowflakeTimestamp,
+      snowflakeTimestamp: getSnowflakeTimestamp(discordMessageId),
       text,
     });
   }
 
-  logGhostscriptDebug("collector", "raw-messages-extracted", {
-    threadId,
-    localUsername,
-    partnerUsername,
-    sinceTimestamp: sinceTimestamp ?? null,
-    extractedCount: extractedMessages.length,
-    extractedMessages: extractedMessages.map((message) => ({
-      discordMessageId: message.discordMessageId,
-      authorUsername: message.authorUsername,
-      snowflakeTimestamp: message.snowflakeTimestamp,
-      text: message.text,
-    })),
-  });
-
-  return filterEligibleTwoPartyMessages(extractedMessages, localUsername, partnerUsername, sinceTimestamp);
+  return extractedMessages;
 }
 
 export function filterEligibleTwoPartyMessages(
@@ -625,6 +633,10 @@ function usernamesProbablyMatch(left: string, right: string) {
     (compactLeft.length >= 5 && compactRight.includes(compactLeft)) ||
     (compactRight.length >= 5 && compactLeft.includes(compactRight))
   );
+}
+
+export function authorUsernameMatches(candidate: string, target: string) {
+  return usernamesProbablyMatch(normalizeUsername(candidate), normalizeUsername(target));
 }
 
 function compactUsername(value: string) {
