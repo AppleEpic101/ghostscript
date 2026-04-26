@@ -114,8 +114,8 @@ function PopupApp() {
     setLobbyInviteCode(state.activePairing.inviteCode);
     setLobbyParticipants(
       [
-        state.activePairing.localParticipant.displayName,
-        state.activePairing.counterpart?.displayName ?? null,
+        state.activePairing.localParticipant.username,
+        state.activePairing.counterpart?.username ?? null,
       ].filter((participant): participant is string => Boolean(participant)),
     );
 

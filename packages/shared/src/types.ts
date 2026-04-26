@@ -24,7 +24,7 @@ export interface PairingParticipant {
   id: string;
   sessionId: string;
   role: ParticipantRole;
-  displayName: string;
+  username: string;
   identityPublicKey: string | null;
   createdAt: string;
 }
@@ -32,7 +32,7 @@ export interface PairingParticipant {
 export interface PairedContact {
   id: string;
   sessionId: string;
-  displayName: string;
+  username: string;
   pairedAt: string;
   defaultCoverTopic: string;
   inviteCode: string;

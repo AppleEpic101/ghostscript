@@ -33,8 +33,8 @@ export async function readExtensionState(): Promise<ExtensionState> {
   return {
     profile: profile ?? EMPTY_STATE.profile,
     drafts: drafts ?? EMPTY_STATE.drafts,
-    activePairing: pairingCache?.activePairing ?? EMPTY_STATE.activePairing,
-    contacts: pairingCache?.contacts ?? EMPTY_STATE.contacts,
+    activePairing: normalizeActivePairing(pairingCache?.activePairing ?? EMPTY_STATE.activePairing),
+    contacts: normalizeContacts(pairingCache?.contacts ?? EMPTY_STATE.contacts),
   };
 }
 
@@ -183,7 +183,7 @@ function buildContact(participant: PairingParticipant, session: PairingSession, 
   return {
     id: participant.id,
     sessionId: participant.sessionId,
-    displayName: participant.displayName,
+    username: participant.username,
     pairedAt: session.joinedAt ?? session.createdAt,
     defaultCoverTopic: coverTopic,
     inviteCode: session.invite.code,
@@ -206,4 +206,30 @@ function replaceOrInsertContact(contacts: PairedContact[], nextContact: PairedCo
   }
 
   contacts[existingIndex] = nextContact;
+}
+
+function normalizeActivePairing(activePairing: ActivePairingState | null) {
+  if (!activePairing) {
+    return null;
+  }
+
+  return {
+    ...activePairing,
+    localParticipant: normalizeParticipant(activePairing.localParticipant),
+    counterpart: activePairing.counterpart ? normalizeParticipant(activePairing.counterpart) : null,
+  };
+}
+
+function normalizeParticipant(participant: PairingParticipant) {
+  return {
+    ...participant,
+    username: participant.username ?? (participant as PairingParticipant & { displayName?: string }).displayName ?? "",
+  };
+}
+
+function normalizeContacts(contacts: PairedContact[]) {
+  return contacts.map((contact) => ({
+    ...contact,
+    username: contact.username ?? (contact as PairedContact & { displayName?: string }).displayName ?? "",
+  }));
 }

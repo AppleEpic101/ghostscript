@@ -1,7 +1,7 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import ReactDOM, { type Root } from "react-dom/client";
 import { getCurrentDiscordThreadId, getDiscordNativeTextbox } from "../lib/discord";
-import { readConversationState } from "../lib/ghostscriptState";
+import { isPendingSendStale, readConversationState, setPendingSend } from "../lib/ghostscriptState";
 import { sendEncryptedGhostscriptMessage, syncGhostscriptConversation } from "../lib/ghostscriptMessaging";
 import { readExtensionState } from "../lib/pairingStore";
 import overlayStyles from "./styles.css?inline";
@@ -24,6 +24,11 @@ let composerOverlaySyncFrame: number | null = null;
 let composerOverlayMode: ComposerMode = "encrypted";
 let conversationSyncTimeout: number | null = null;
 let conversationSyncInFlight = false;
+
+const NATIVE_TEXTBOX_MASK_DATASET_KEY = "ghostscriptMaskedByOverlay";
+const NATIVE_TEXTBOX_PREVIOUS_OPACITY_DATASET_KEY = "ghostscriptPreviousOpacity";
+const NATIVE_TEXTBOX_PREVIOUS_POINTER_EVENTS_DATASET_KEY = "ghostscriptPreviousPointerEvents";
+const NATIVE_TEXTBOX_PREVIOUS_CARET_COLOR_DATASET_KEY = "ghostscriptPreviousCaretColor";
 
 type ComposerMode = "encrypted" | "normal";
 
@@ -66,6 +71,18 @@ function GhostscriptComposerOverlay({ onLayoutChange }: { onLayoutChange: () => 
 
         const conversation = await readConversationState(threadId);
         if (cancelled) {
+          return;
+        }
+
+        if (state.activePairing && isPendingSendStale(conversation.pendingSend, state.activePairing.session.id)) {
+          await setPendingSend(threadId, null);
+          if (cancelled) {
+            return;
+          }
+
+          setSendStatus("Ready to encrypt.");
+          setSendError(null);
+          setSendLocked(false);
           return;
         }
 
@@ -120,6 +137,7 @@ function GhostscriptComposerOverlay({ onLayoutChange }: { onLayoutChange: () => 
 
   useEffect(() => {
     composerOverlayMode = mode;
+    syncDiscordNativeTextboxMask(mode === "encrypted");
     onLayoutChange();
 
     if (mode === "normal") {
@@ -155,7 +173,7 @@ function GhostscriptComposerOverlay({ onLayoutChange }: { onLayoutChange: () => 
       const state = await readExtensionState();
       const activePairing = state.activePairing;
       const localUsername = state.profile?.discordUsername ?? "";
-      const partnerUsername = activePairing?.counterpart?.displayName ?? "";
+      const partnerUsername = activePairing?.counterpart?.username ?? "";
 
       if (!activePairing || activePairing.status !== "paired") {
         throw new Error("Ghostscript is no longer paired in this Discord session.");
@@ -393,9 +411,12 @@ function syncComposerOverlay() {
 
   if (!target) {
     existingHost.style.display = "none";
+    syncDiscordNativeTextboxMask(false);
     clearConversationSpacer();
     return;
   }
+
+  syncDiscordNativeTextboxMask(composerOverlayMode === "encrypted");
 
   const bounds = target.getBoundingClientRect();
 
@@ -456,7 +477,7 @@ async function syncConversationActivity() {
     const state = await readExtensionState();
     const activePairing = state.activePairing;
     const localUsername = state.profile?.discordUsername ?? "";
-    const partnerUsername = activePairing?.counterpart?.displayName ?? "";
+    const partnerUsername = activePairing?.counterpart?.username ?? "";
 
     if (!activePairing || activePairing.status !== "paired" || !localUsername || !partnerUsername) {
       return;
@@ -488,6 +509,7 @@ function unmountComposerOverlay() {
   composerOverlayRoot?.unmount();
   composerOverlayRoot = null;
   composerOverlayMode = "encrypted";
+  syncDiscordNativeTextboxMask(false);
   document.getElementById(COMPOSER_OVERLAY_HOST_ID)?.remove();
   clearConversationSpacer();
 }
@@ -630,4 +652,37 @@ if (window.location.hostname === "discord.com") {
   installRouteObservers();
   installStorageObserver();
   void syncOverlayVisibility();
+}
+
+function syncDiscordNativeTextboxMask(masked: boolean) {
+  const textbox = getDiscordNativeTextbox();
+  if (!textbox) {
+    return;
+  }
+
+  if (masked) {
+    if (textbox.dataset[NATIVE_TEXTBOX_MASK_DATASET_KEY] !== "true") {
+      textbox.dataset[NATIVE_TEXTBOX_MASK_DATASET_KEY] = "true";
+      textbox.dataset[NATIVE_TEXTBOX_PREVIOUS_OPACITY_DATASET_KEY] = textbox.style.opacity;
+      textbox.dataset[NATIVE_TEXTBOX_PREVIOUS_POINTER_EVENTS_DATASET_KEY] = textbox.style.pointerEvents;
+      textbox.dataset[NATIVE_TEXTBOX_PREVIOUS_CARET_COLOR_DATASET_KEY] = textbox.style.caretColor;
+    }
+
+    textbox.style.opacity = "0";
+    textbox.style.pointerEvents = "none";
+    textbox.style.caretColor = "transparent";
+    return;
+  }
+
+  if (textbox.dataset[NATIVE_TEXTBOX_MASK_DATASET_KEY] !== "true") {
+    return;
+  }
+
+  textbox.style.opacity = textbox.dataset[NATIVE_TEXTBOX_PREVIOUS_OPACITY_DATASET_KEY] ?? "";
+  textbox.style.pointerEvents = textbox.dataset[NATIVE_TEXTBOX_PREVIOUS_POINTER_EVENTS_DATASET_KEY] ?? "";
+  textbox.style.caretColor = textbox.dataset[NATIVE_TEXTBOX_PREVIOUS_CARET_COLOR_DATASET_KEY] ?? "";
+  delete textbox.dataset[NATIVE_TEXTBOX_MASK_DATASET_KEY];
+  delete textbox.dataset[NATIVE_TEXTBOX_PREVIOUS_OPACITY_DATASET_KEY];
+  delete textbox.dataset[NATIVE_TEXTBOX_PREVIOUS_POINTER_EVENTS_DATASET_KEY];
+  delete textbox.dataset[NATIVE_TEXTBOX_PREVIOUS_CARET_COLOR_DATASET_KEY];
 }

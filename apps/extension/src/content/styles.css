@@ -206,12 +206,106 @@
 }
 
 .ghostscript-decoded-overlay {
-  margin-top: 8px;
-  padding: 8px 10px;
-  border-radius: 10px;
-  background: rgba(88, 101, 242, 0.14);
-  border: 1px solid rgba(88, 101, 242, 0.26);
-  color: #dfe6ff;
+  margin-top: 6px;
+  padding: 10px 11px 11px;
+  border-radius: 14px;
+  background:
+    linear-gradient(180deg, rgba(88, 101, 242, 0.18), rgba(63, 73, 164, 0.14)),
+    rgba(25, 29, 49, 0.92);
+  border: 1px solid rgba(124, 141, 255, 0.34);
+  color: #eef2ff;
+  box-shadow: 0 12px 26px rgba(7, 9, 20, 0.2);
   font-size: 12px;
-  line-height: 1.4;
+  line-height: 1.45;
+}
+
+[data-ghostscript-hidden-content="true"] {
+  display: none;
+}
+
+.ghostscript-decoded-overlay--tampered {
+  background:
+    linear-gradient(180deg, rgba(166, 43, 52, 0.24), rgba(90, 25, 29, 0.18)),
+    rgba(42, 20, 25, 0.94);
+  border-color: rgba(255, 120, 128, 0.36);
+}
+
+.ghostscript-decoded-overlay__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.ghostscript-decoded-overlay__badge,
+.ghostscript-decoded-overlay__state {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  border-radius: 999px;
+  padding: 0 10px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.ghostscript-decoded-overlay__badge {
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+}
+
+.ghostscript-decoded-overlay__state {
+  background: rgba(255, 126, 126, 0.14);
+  color: #ffd2d4;
+}
+
+.ghostscript-decoded-overlay__toggle {
+  display: inline-flex;
+  gap: 4px;
+  padding: 3px;
+  border-radius: 999px;
+  background: rgba(8, 11, 26, 0.4);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.ghostscript-decoded-overlay__toggle-button {
+  appearance: none;
+  border: 0;
+  border-radius: 999px;
+  padding: 6px 10px;
+  background: transparent;
+  color: rgba(222, 228, 255, 0.78);
+  font-family: "gg sans", "Noto Sans", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    background-color 120ms ease,
+    color 120ms ease,
+    transform 120ms ease;
+}
+
+.ghostscript-decoded-overlay__toggle-button:hover {
+  color: #ffffff;
+}
+
+.ghostscript-decoded-overlay__toggle-button--active {
+  background: rgba(255, 255, 255, 0.16);
+  color: #ffffff;
+  transform: translateY(-1px);
+}
+
+.ghostscript-decoded-overlay__body {
+  margin: 10px 0 0;
+  color: #eef2ff;
+  font-size: 13px;
+  line-height: 1.48;
+  white-space: pre-wrap;
+  user-select: text;
+  cursor: text;
+}
+
+.ghostscript-decoded-overlay__body--tampered {
+  color: #ffe3e4;
 }

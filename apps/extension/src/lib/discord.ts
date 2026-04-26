@@ -1,4 +1,6 @@
 import type { GhostscriptThreadMessage } from "@ghostscript/shared";
+import type { DecodedGhostscriptMessageView } from "./ghostscriptState";
+import { setDecodedMessageActiveView } from "./ghostscriptState";
 
 const MESSAGE_CONTAINER_SELECTORS = [
   'li[id^="chat-messages-"]',
@@ -15,6 +17,13 @@ const AUTHOR_SELECTORS = [
 ];
 
 const CONTENT_SELECTORS = ['[id^="message-content-"]', '[class*="messageContent"]', '[data-slate-node="element"]'];
+const DISCORD_MAX_MESSAGE_LENGTH = 2000;
+const SEND_BUTTON_SELECTORS = [
+  'button[type="submit"]',
+  'button[aria-label*="Send" i]',
+  'button[class*="sendButton"]',
+  '[role="button"][aria-label*="Send" i]',
+];
 
 export function getCurrentDiscordThreadId() {
   const pathSegments = window.location.pathname.split("/").filter(Boolean);
@@ -26,7 +35,7 @@ export function getDiscordNativeTextbox() {
   return textbox instanceof HTMLElement ? textbox : null;
 }
 
-export function collectTwoPartyMessages(localUsername: string, partnerUsername: string): GhostscriptThreadMessage[] {
+export function collectTwoPartyMessages(localUsername: string, partnerUsername: string, sinceTimestamp?: string) {
   const threadId = getCurrentDiscordThreadId();
 
   if (!threadId) {
@@ -37,6 +46,7 @@ export function collectTwoPartyMessages(localUsername: string, partnerUsername: 
   const messages: GhostscriptThreadMessage[] = [];
   const seenMessageIds = new Set<string>();
   let previousAuthor = "";
+  const minimumTimestamp = normalizeTimestampFloor(sinceTimestamp);
 
   for (const element of elements) {
     const discordMessageId = extractMessageId(element);
@@ -69,11 +79,17 @@ export function collectTwoPartyMessages(localUsername: string, partnerUsername: 
     }
 
     seenMessageIds.add(discordMessageId);
+    const snowflakeTimestamp = getSnowflakeTimestamp(discordMessageId);
+
+    if (snowflakeTimestamp < minimumTimestamp) {
+      continue;
+    }
+
     messages.push({
       threadId,
       discordMessageId,
       authorUsername,
-      snowflakeTimestamp: getSnowflakeTimestamp(discordMessageId),
+      snowflakeTimestamp,
       text,
       direction,
     });
@@ -106,6 +122,10 @@ export function buildBoundedConversationWindow(
 }
 
 export async function sendTextThroughDiscord(text: string) {
+  if (text.length > DISCORD_MAX_MESSAGE_LENGTH) {
+    throw new Error(`Discord messages cannot exceed ${DISCORD_MAX_MESSAGE_LENGTH} characters.`);
+  }
+
   const textbox = getDiscordNativeTextbox();
   if (!textbox) {
     throw new Error("Discord's native composer is not available on this page.");
@@ -116,12 +136,30 @@ export async function sendTextThroughDiscord(text: string) {
 
   if (!document.execCommand("insertText", false, text)) {
     textbox.textContent = text;
-    textbox.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: text }));
   }
+  dispatchEditableInputEvents(textbox, text);
 
   dispatchEnterKey(textbox, "keydown");
   dispatchEnterKey(textbox, "keypress");
   dispatchEnterKey(textbox, "keyup");
+
+  await waitForDiscordComposerSettle();
+
+  if (extractEditableText(textbox).trim() === text.trim()) {
+    submitDiscordComposer(textbox);
+    await waitForDiscordComposerSettle();
+  }
+
+  if (extractEditableText(textbox).trim() === text.trim()) {
+    clickDiscordSendButton(textbox);
+    await waitForDiscordComposerSettle();
+  }
+
+  if (extractEditableText(textbox).trim() === text.trim()) {
+    throw new Error(
+      "Ghostscript filled Discord's composer, but Discord did not send the message automatically.",
+    );
+  }
 }
 
 export function hideDiscordMessageLocally(discordMessageId: string) {
@@ -135,25 +173,98 @@ export function hideDiscordMessageLocally(discordMessageId: string) {
 }
 
 export function renderDecodedMessageOverlay(params: {
+  threadId: string;
   discordMessageId: string;
   status: "decoded" | "tampered";
   plaintext: string | null;
+  visibleText: string;
+  activeView: DecodedGhostscriptMessageView;
 }) {
   const messageElement = findMessageElementById(params.discordMessageId);
   if (!messageElement) {
     return;
   }
 
-  let overlay = messageElement.querySelector<HTMLElement>("[data-ghostscript-decoded-overlay]");
+  const contentElement = findMessageContentElement(messageElement);
+  if (contentElement) {
+    contentElement.dataset.ghostscriptHiddenContent = "true";
+    contentElement.setAttribute("aria-hidden", "true");
+  }
+
+  const overlayAnchor = contentElement?.parentElement ?? messageElement;
+  let overlay = overlayAnchor.querySelector<HTMLElement>("[data-ghostscript-decoded-overlay]");
   if (!overlay) {
     overlay = document.createElement("div");
     overlay.dataset.ghostscriptDecodedOverlay = "true";
     overlay.className = "ghostscript-decoded-overlay";
-    messageElement.appendChild(overlay);
+    overlayAnchor.appendChild(overlay);
   }
 
-  overlay.textContent =
-    params.status === "decoded" ? `Ghostscript: ${params.plaintext ?? ""}` : "Ghostscript: tampered/corrupted";
+  overlay.dataset.ghostscriptMessageId = params.discordMessageId;
+  overlay.dataset.ghostscriptThreadId = params.threadId;
+  overlay.dataset.ghostscriptStatus = params.status;
+  overlay.classList.toggle("ghostscript-decoded-overlay--tampered", params.status === "tampered");
+
+  if (params.status === "tampered") {
+    overlay.innerHTML = `
+      <div class="ghostscript-decoded-overlay__header">
+        <span class="ghostscript-decoded-overlay__badge">Ghostscript</span>
+        <span class="ghostscript-decoded-overlay__state">Tampered/Corrupted</span>
+      </div>
+      <p class="ghostscript-decoded-overlay__body ghostscript-decoded-overlay__body--tampered">Ghostscript recovered a framed message here, but it failed authentication.</p>
+    `;
+    return;
+  }
+
+  overlay.innerHTML = `
+    <div class="ghostscript-decoded-overlay__header">
+      <span class="ghostscript-decoded-overlay__badge">Ghostscript</span>
+      <div class="ghostscript-decoded-overlay__toggle" role="tablist" aria-label="Ghostscript message view">
+        <button
+          type="button"
+          class="ghostscript-decoded-overlay__toggle-button"
+          data-ghostscript-view="decrypted"
+          role="tab"
+          aria-selected="${params.activeView === "decrypted"}"
+        >
+          Decrypted
+        </button>
+        <button
+          type="button"
+          class="ghostscript-decoded-overlay__toggle-button"
+          data-ghostscript-view="original"
+          role="tab"
+          aria-selected="${params.activeView === "original"}"
+        >
+          Original
+        </button>
+      </div>
+    </div>
+    <p class="ghostscript-decoded-overlay__body" data-ghostscript-decoded-overlay-body="true"></p>
+  `;
+
+  const body = overlay.querySelector<HTMLElement>("[data-ghostscript-decoded-overlay-body]");
+  if (body) {
+    body.textContent = params.activeView === "original" ? params.visibleText : params.plaintext ?? "";
+  }
+
+  for (const button of overlay.querySelectorAll<HTMLButtonElement>("[data-ghostscript-view]")) {
+    const nextView = button.dataset.ghostscriptView;
+    const isActive = nextView === params.activeView;
+    button.classList.toggle("ghostscript-decoded-overlay__toggle-button--active", isActive);
+    button.tabIndex = isActive ? 0 : -1;
+    button.onclick = () => {
+      if (nextView !== "decrypted" && nextView !== "original") {
+        return;
+      }
+
+      renderDecodedMessageOverlay({
+        ...params,
+        activeView: nextView,
+      });
+      void setDecodedMessageActiveView(params.threadId, params.discordMessageId, nextView);
+    };
+  }
 }
 
 function findMessageContainers() {
@@ -165,6 +276,17 @@ function findMessageContainers() {
 function findMessageElementById(discordMessageId: string) {
   const allMessageElements = findMessageContainers();
   return allMessageElements.find((element) => extractMessageId(element) === discordMessageId) ?? null;
+}
+
+function findMessageContentElement(messageElement: HTMLElement) {
+  for (const selector of CONTENT_SELECTORS) {
+    const candidate = messageElement.querySelector<HTMLElement>(selector);
+    if (candidate) {
+      return candidate;
+    }
+  }
+
+  return null;
 }
 
 function extractMessageId(element: HTMLElement) {
@@ -236,6 +358,15 @@ function normalizeUsername(value: string) {
   return value.trim().replace(/^@+/, "").toLowerCase();
 }
 
+function normalizeTimestampFloor(value?: string) {
+  if (!value) {
+    return "";
+  }
+
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : "";
+}
+
 function selectAllEditableText(element: HTMLElement) {
   const selection = window.getSelection();
   if (!selection) {
@@ -259,4 +390,85 @@ function dispatchEnterKey(target: HTMLElement, type: "keydown" | "keypress" | "k
       cancelable: true,
     }),
   );
+}
+
+function dispatchEditableInputEvents(target: HTMLElement, text: string) {
+  target.dispatchEvent(new InputEvent("beforeinput", { bubbles: true, cancelable: true, inputType: "insertText", data: text }));
+  target.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: text }));
+  target.dispatchEvent(new Event("change", { bubbles: true }));
+}
+
+function extractEditableText(element: HTMLElement) {
+  return element.innerText.trim() || element.textContent?.trim() || "";
+}
+
+function clickDiscordSendButton(textbox: HTMLElement) {
+  const composerRoot = getDiscordComposerRoot(textbox);
+
+  for (const selector of SEND_BUTTON_SELECTORS) {
+    const sendButton = composerRoot?.querySelector<HTMLButtonElement>(selector);
+    if (sendButton && !sendButton.disabled) {
+      dispatchSendButtonClick(sendButton);
+      return;
+    }
+  }
+}
+
+function submitDiscordComposer(textbox: HTMLElement) {
+  const composerForm = textbox.closest("form");
+  if (!(composerForm instanceof HTMLFormElement)) {
+    return;
+  }
+
+  const sendButton = findDiscordSendButton(textbox);
+  if (typeof composerForm.requestSubmit === "function") {
+    composerForm.requestSubmit(sendButton ?? undefined);
+    return;
+  }
+
+  const submitted = composerForm.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+  if (!submitted) {
+    return;
+  }
+
+  if (sendButton) {
+    dispatchSendButtonClick(sendButton);
+  }
+}
+
+function findDiscordSendButton(textbox: HTMLElement) {
+  const composerRoot = getDiscordComposerRoot(textbox);
+
+  for (const selector of SEND_BUTTON_SELECTORS) {
+    const sendButton = composerRoot?.querySelector<HTMLButtonElement>(selector);
+    if (sendButton && !sendButton.disabled) {
+      return sendButton;
+    }
+  }
+
+  return null;
+}
+
+function getDiscordComposerRoot(textbox: HTMLElement) {
+  return (
+    textbox.closest("form") ??
+    textbox.closest('[class*="channelTextArea"]') ??
+    textbox.closest('[class*="form"]') ??
+    textbox.parentElement ??
+    document.body
+  );
+}
+
+function dispatchSendButtonClick(button: HTMLButtonElement) {
+  button.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, cancelable: true, pointerId: 1, pointerType: "mouse" }));
+  button.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+  button.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, cancelable: true, pointerId: 1, pointerType: "mouse" }));
+  button.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, cancelable: true }));
+  button.click();
+}
+
+function waitForDiscordComposerSettle() {
+  return new Promise<void>((resolve) => {
+    window.setTimeout(resolve, 30);
+  });
 }

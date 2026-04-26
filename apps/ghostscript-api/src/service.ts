@@ -261,7 +261,7 @@ function mapParticipant(record: ParticipantRecord): PairingParticipant {
     id: record.id,
     sessionId: record.session_id,
     role: record.role,
-    displayName: record.display_name,
+    username: record.display_name,
     identityPublicKey: record.identity_public_key,
     createdAt: record.created_at,
   };

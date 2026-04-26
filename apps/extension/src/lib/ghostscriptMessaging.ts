@@ -12,6 +12,8 @@ import {
 import {
   cacheConversationMessages,
   getLocalIdentityKeypair,
+  isPendingSendStale,
+  type DecodedGhostscriptMessageState,
   reserveNextMessageId,
   readConversationState,
   setPendingSend,
@@ -19,6 +21,8 @@ import {
   storeDecodedMessage,
 } from "./ghostscriptState";
 import { buildConversationPrompt, decodeCoverTextToBitstring, encodeBitstringAsCoverText, getDefaultEncodingConfig } from "./llmBridge";
+
+const DISCORD_MAX_MESSAGE_LENGTH = 2000;
 
 export async function sendEncryptedGhostscriptMessage(params: {
   plaintext: string;
@@ -28,11 +32,20 @@ export async function sendEncryptedGhostscriptMessage(params: {
 }) {
   const threadId = getRequiredThreadId();
   const existingConversation = await readConversationState(threadId);
-  if (existingConversation.pendingSend && existingConversation.pendingSend.status !== "failed") {
+  if (isPendingSendStale(existingConversation.pendingSend, params.pairing.session.id)) {
+    await setPendingSend(threadId, null);
+  }
+
+  const refreshedConversation = await readConversationState(threadId);
+  if (refreshedConversation.pendingSend && refreshedConversation.pendingSend.status !== "failed") {
     throw new Error("Wait for Discord to confirm the previous Ghostscript message before sending another one.");
   }
 
-  const conversationMessages = collectTwoPartyMessages(params.localUsername, params.partnerUsername);
+  const conversationMessages = collectTwoPartyMessages(
+    params.localUsername,
+    params.partnerUsername,
+    getPairingEstablishedAt(params.pairing),
+  );
   await cacheConversationMessages(threadId, conversationMessages);
 
   const material = await getSessionCryptoMaterial(params.pairing);
@@ -40,6 +53,7 @@ export async function sendEncryptedGhostscriptMessage(params: {
 
   await setPendingSend(threadId, {
     threadId,
+    sessionId: params.pairing.session.id,
     status: "encoding",
     expectedCoverText: "",
     startedAt: Date.now(),
@@ -64,8 +78,15 @@ export async function sendEncryptedGhostscriptMessage(params: {
       config: encodingConfig,
     });
 
+    if (visibleText.length > DISCORD_MAX_MESSAGE_LENGTH) {
+      throw new Error(
+        `Ghostscript generated ${visibleText.length} characters of cover text, which exceeds Discord's ${DISCORD_MAX_MESSAGE_LENGTH}-character limit.`,
+      );
+    }
+
     await setPendingSend(threadId, {
       threadId,
+      sessionId: params.pairing.session.id,
       status: "awaiting-discord-confirm",
       expectedCoverText: visibleText,
       startedAt: Date.now(),
@@ -78,6 +99,7 @@ export async function sendEncryptedGhostscriptMessage(params: {
   } catch (error) {
     await setPendingSend(threadId, {
       threadId,
+      sessionId: params.pairing.session.id,
       status: "failed",
       expectedCoverText: "",
       startedAt: Date.now(),
@@ -98,13 +120,22 @@ export async function syncGhostscriptConversation(params: {
     return;
   }
 
-  const messages = collectTwoPartyMessages(params.localUsername, params.partnerUsername);
+  if (isPendingSendStale((await readConversationState(threadId)).pendingSend, params.pairing.session.id)) {
+    await setPendingSend(threadId, null);
+  }
+
+  const messages = collectTwoPartyMessages(
+    params.localUsername,
+    params.partnerUsername,
+    getPairingEstablishedAt(params.pairing),
+  );
   await cacheConversationMessages(threadId, messages);
 
   await reconcilePendingSend(messages);
   const conversation = await readConversationState(threadId);
   await applySuppressedMessages(threadId);
   await decodeIncomingMessages(params, messages, conversation.suppressedMessageIds);
+  await restoreDecodedMessageOverlays(threadId);
 }
 
 async function reconcilePendingSend(messages: GhostscriptThreadMessage[]) {
@@ -196,11 +227,15 @@ async function decodeIncomingMessages(
         plaintext,
         visibleText: message.text,
         processedAt: new Date().toISOString(),
+        activeView: "decrypted",
       });
       renderDecodedMessageOverlay({
+        threadId,
         discordMessageId: message.discordMessageId,
         status: "decoded",
         plaintext,
+        visibleText: message.text,
+        activeView: "decrypted",
       });
     } catch {
       await storeDecodedMessage(threadId, message.discordMessageId, {
@@ -208,14 +243,41 @@ async function decodeIncomingMessages(
         plaintext: null,
         visibleText: message.text,
         processedAt: new Date().toISOString(),
+        activeView: "decrypted",
       });
       renderDecodedMessageOverlay({
+        threadId,
         discordMessageId: message.discordMessageId,
         status: "tampered",
         plaintext: null,
+        visibleText: message.text,
+        activeView: "decrypted",
       });
     }
   }
+}
+
+async function restoreDecodedMessageOverlays(threadId: string) {
+  const conversation = await readConversationState(threadId);
+
+  for (const [discordMessageId, decodedMessage] of Object.entries(conversation.decodedMessages)) {
+    renderStoredDecodedMessage(threadId, discordMessageId, decodedMessage);
+  }
+}
+
+function renderStoredDecodedMessage(
+  threadId: string,
+  discordMessageId: string,
+  decodedMessage: DecodedGhostscriptMessageState,
+) {
+  renderDecodedMessageOverlay({
+    threadId,
+    discordMessageId,
+    status: decodedMessage.status,
+    plaintext: decodedMessage.plaintext,
+    visibleText: decodedMessage.visibleText,
+    activeView: decodedMessage.activeView,
+  });
 }
 
 async function getSessionCryptoMaterial(pairing: ActivePairingState): Promise<SessionCryptoMaterial> {
@@ -253,4 +315,8 @@ function compareMessageOrder(left: GhostscriptThreadMessage, right: GhostscriptT
   }
 
   return left.discordMessageId.localeCompare(right.discordMessageId);
+}
+
+function getPairingEstablishedAt(pairing: ActivePairingState) {
+  return pairing.session.joinedAt ?? pairing.session.createdAt;
 }
