@@ -1,1 +1,62 @@
-import{R as A,j as e,a as F,r as o,s as f,b as D,g as G,c as _,d as Y,e as K,f as H,h as Q,i as U,k as V,l as X,m as Z}from"./pairingStore-CFwTp-7o.js";(function(){const d=document.createElement("link").relList;if(d&&d.supports&&d.supports("modulepreload"))return;for(const n of document.querySelectorAll('link[rel="modulepreload"]'))u(n);new MutationObserver(n=>{for(const r of n)if(r.type==="childList")for(const h of r.addedNodes)h.tagName==="LINK"&&h.rel==="modulepreload"&&u(h)}).observe(document,{childList:!0,subtree:!0});function b(n){const r={};return n.integrity&&(r.integrity=n.integrity),n.referrerPolicy&&(r.referrerPolicy=n.referrerPolicy),n.crossOrigin==="use-credentials"?r.credentials="include":n.crossOrigin==="anonymous"?r.credentials="omit":r.credentials="same-origin",r}function u(n){if(n.ep)return;n.ep=!0;const r=b(n);fetch(n.href,r)}})();const $=3e3;function ee(){const[a,d]=o.useState(""),[b,u]=o.useState(""),[n,r]=o.useState(""),[h,m]=o.useState("home"),[O,v]=o.useState("idle"),[S,l]=o.useState(null),[P,i]=o.useState(null),[C,y]=o.useState(null),[p,N]=o.useState(null),[k,w]=o.useState([]),[B,g]=o.useState(null),[E,L]=o.useState(!1);o.useEffect(()=>{x()},[]),o.useEffect(()=>{const t=a.trim();f(t)},[a]),o.useEffect(()=>{let t=!1;const s=async()=>{const I=(await D()).activePairing;if(I)try{const j=await G(I.inviteCode);await _(j),t||await x()}catch(j){t||i(j instanceof Error?j.message:"Unable to refresh the lobby.")}};s();const z=window.setInterval(()=>{s()},$);return()=>{t=!0,window.clearInterval(z)}},[]);async function x(){const t=await D();if(d(t.profile?.discordUsername??""),u(t.drafts?.inviteCode??""),!t.activePairing){y(null),N(null),w([]),g(null);return}if(N(t.activePairing.inviteCode),w([t.activePairing.localParticipant.displayName,t.activePairing.counterpart?.displayName??null].filter(s=>!!s)),t.activePairing.localParticipant.role==="inviter"){y(t.activePairing.inviteCode),g(t.activePairing.status==="paired"?"Both people are in the lobby.":"Waiting for someone else to join this code.");return}y(null),g(t.activePairing.counterpart?"Both people are in the lobby.":"Joined the code. Waiting for the other person to appear.")}async function T(){if(i(null),l(null),!a.trim()){i("Enter your Discord username first.");return}await f(a.trim()),m("create-invite-details")}async function R(){if(i(null),l(null),!a.trim()){i("Enter your Discord username first."),m("home");return}if(!n.trim()){i("Add the concealed-instructions topic before creating an invite.");return}v("loading");try{const t=await H({inviterName:a.trim(),coverTopic:n.trim()});await f(a.trim()),await Q({inviteCode:t.session.invite.code,session:t.session,localParticipant:t.inviter,coverTopic:t.coverTopic}),await x(),v("success"),l("Invite ready. Share this code, then head back to Discord once they join."),i(null)}catch(t){v("error"),i(t instanceof Error?t.message:"Unable to create invite.")}}async function J(){if(i(null),l(null),!a.trim()){i("Enter your Discord username first.");return}if(!b.trim()){i("Enter the 4-digit invite code.");return}const t=b.replace(/\D/g,"").slice(0,4);await f(a.trim()),await U(t),v("loading");try{const s=await V(t,{joinerName:a.trim()});await X({inviteCode:s.session.invite.code,session:s.session,localParticipant:s.joiner,counterpart:s.inviter,coverTopic:s.coverTopic}),await Z(),await x(),v("success"),l("Connection ready. Return to Discord to use Ghostscript with this paired contact.")}catch(s){v("error"),i(s instanceof Error?s.message:"Unable to join invite.")}}async function M(t){const s=t.replace(/\D/g,"").slice(0,4);u(s),await U(s)}async function W(){if(p){L(!0),i(null),l(null);try{await Y({inviteCode:p}),await K(p),y(null),N(null),w([]),g(null),u(""),r(""),m("home"),l("Left the lobby.")}catch(t){i(t instanceof Error?t.message:"Unable to leave the lobby.")}finally{L(!1)}}}async function q(){if(p)try{await navigator.clipboard.writeText(p),l("Code copied to clipboard."),i(null)}catch{i("Unable to copy the code right now.")}}const c=O==="loading";return e.jsxs("div",{className:"popup-shell",children:[e.jsx("p",{className:"popup-eyebrow",children:"Ghostscript"}),e.jsx("h1",{children:"Pair for concealed Discord messaging"}),e.jsx("p",{className:"popup-copy",children:"Ghostscript pairs you with one other person so Discord only sees normal-looking cover text while the pairing service keeps the shared connection state in sync."}),p?e.jsxs("section",{className:"popup-card popup-card--lobby",children:[e.jsxs("button",{className:"popup-lobby-code",type:"button",onClick:()=>{q()},children:[e.jsx("span",{children:p}),e.jsx("small",{children:"Click to copy"})]}),e.jsx("p",{className:"popup-copy popup-copy--tight",children:B}),e.jsxs("div",{className:"popup-lobby-list",children:[k.map(t=>e.jsx("div",{className:"popup-lobby-person",children:t},t)),k.length<2?e.jsx("div",{className:"popup-lobby-person popup-lobby-person--waiting",children:"Waiting for someone else..."}):null]}),e.jsx("div",{className:"popup-actions popup-actions--stack",children:e.jsx("button",{className:"popup-danger",type:"button",disabled:E,onClick:()=>{W()},children:E?"Leaving...":"Leave"})})]}):e.jsxs("section",{className:"popup-card",children:[h==="home"?e.jsxs("div",{className:"popup-grid",children:[e.jsxs("label",{className:"popup-label",children:[e.jsx("span",{children:"Discord username"}),e.jsx("input",{className:"popup-input",type:"text",value:a,onChange:t=>d(t.target.value),placeholder:"@yourname"})]}),e.jsxs("div",{className:"popup-actions",children:[e.jsx("button",{className:"popup-button",type:"button",disabled:c,onClick:()=>{T()},children:c?"Working...":"Create invite"}),e.jsx("button",{className:"popup-secondary",type:"button",disabled:c,onClick:async()=>{if(i(null),l(null),!a.trim()){i("Enter your Discord username first.");return}await f(a.trim()),m("join-invite")},children:c?"Working...":"Join invite"})]})]}):h==="create-invite-details"?e.jsxs("div",{className:"popup-grid",children:[e.jsxs("label",{className:"popup-label",children:[e.jsx("span",{children:"Concealed-instructions topic"}),e.jsx("textarea",{className:"popup-textarea",value:n,onChange:t=>r(t.target.value),placeholder:"Example: casual weekend plans, coffee gear, hiking routes"})]}),e.jsxs("div",{className:"popup-actions popup-actions--stack",children:[e.jsx("button",{className:"popup-button",type:"button",disabled:c,onClick:()=>{R()},children:c?"Creating invite...":"Create invite code"}),e.jsx("button",{className:"popup-secondary",type:"button",disabled:c,onClick:()=>{m("home"),i(null)},children:"Back"})]})]}):e.jsxs("div",{className:"popup-grid",children:[e.jsxs("label",{className:"popup-label",children:[e.jsx("span",{children:"Invite code"}),e.jsx("input",{className:"popup-input",type:"text",inputMode:"numeric",value:b,onChange:t=>{M(t.target.value)},placeholder:"4 digits"})]}),e.jsxs("div",{className:"popup-actions popup-actions--stack",children:[e.jsx("button",{className:"popup-button",type:"button",disabled:c,onClick:()=>{J()},children:c?"Joining...":"Join invite"}),e.jsx("button",{className:"popup-secondary",type:"button",disabled:c,onClick:()=>{m("home"),i(null)},children:"Back"})]})]}),C?e.jsx("div",{className:"popup-result-code",children:C}):null,C?e.jsx("p",{className:"popup-footnote",children:"Share this 4-digit code directly."}):null]}),S?e.jsx("p",{className:"popup-feedback popup-feedback--success",children:S}):null,P?e.jsx("p",{className:"popup-feedback popup-feedback--error",children:P}):null]})}A.createRoot(document.getElementById("root")).render(e.jsx(F.StrictMode,{children:e.jsx(ee,{})}));
+const __vite__mapDeps=(i,m=__vite__mapDeps,d=(m.f||(m.f=["./main-CK1udz9O.js","./pairingApi-Bsndi2-p.js","./main-DNuufJl4.css"])))=>i.map(i=>d[i]);
+(function(){const c=document.createElement("link").relList;if(c&&c.supports&&c.supports("modulepreload"))return;for(const e of document.querySelectorAll('link[rel="modulepreload"]'))d(e);new MutationObserver(e=>{for(const r of e)if(r.type==="childList")for(const o of r.addedNodes)o.tagName==="LINK"&&o.rel==="modulepreload"&&d(o)}).observe(document,{childList:!0,subtree:!0});function l(e){const r={};return e.integrity&&(r.integrity=e.integrity),e.referrerPolicy&&(r.referrerPolicy=e.referrerPolicy),e.crossOrigin==="use-credentials"?r.credentials="include":e.crossOrigin==="anonymous"?r.credentials="omit":r.credentials="same-origin",r}function d(e){if(e.ep)return;e.ep=!0;const r=l(e);fetch(e.href,r)}})();const b="modulepreload",x=function(i,c){return new URL(i,c).href},h={},v=function(c,l,d){let e=Promise.resolve();if(l&&l.length>0){let y=function(t){return Promise.all(t.map(a=>Promise.resolve(a).then(p=>({status:"fulfilled",value:p}),p=>({status:"rejected",reason:p}))))};const o=document.getElementsByTagName("link"),n=document.querySelector("meta[property=csp-nonce]"),m=n?.nonce||n?.getAttribute("nonce");e=y(l.map(t=>{if(t=x(t,d),t in h)return;h[t]=!0;const a=t.endsWith(".css"),p=a?'[rel="stylesheet"]':"";if(d)for(let u=o.length-1;u>=0;u--){const f=o[u];if(f.href===t&&(!a||f.rel==="stylesheet"))return}else if(document.querySelector(`link[href="${t}"]${p}`))return;const s=document.createElement("link");if(s.rel=a?"stylesheet":b,a||(s.as="script"),s.crossOrigin="",s.href=t,m&&s.setAttribute("nonce",m),document.head.appendChild(s),a)return new Promise((u,f)=>{s.addEventListener("load",u),s.addEventListener("error",()=>f(new Error(`Unable to preload CSS for ${t}`)))})}))}function r(o){const n=new Event("vite:preloadError",{cancelable:!0});if(n.payload=o,window.dispatchEvent(n),!n.defaultPrevented)throw o}return e.then(o=>{for(const n of o||[])n.status==="rejected"&&r(n.reason);return c().catch(r)})},g=document.getElementById("root");function E(){if(!g)return;const i=document.createElement("style");i.textContent=`
+    :root {
+      color-scheme: light;
+      font-family: "Avenir Next", "Segoe UI", sans-serif;
+      background:
+        radial-gradient(circle at top left, rgba(237, 180, 88, 0.32), transparent 38%),
+        linear-gradient(180deg, #f7efe0 0%, #efe4d0 100%);
+      color: #1f2a30;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-width: 360px;
+    }
+
+    .popup-load-error {
+      padding: 18px;
+    }
+
+    .popup-load-error-card {
+      background: rgba(255, 251, 245, 0.9);
+      border: 1px solid rgba(109, 81, 38, 0.12);
+      border-radius: 18px;
+      padding: 16px;
+      box-shadow: 0 20px 40px rgba(92, 69, 34, 0.08);
+    }
+
+    .popup-load-error-card h1 {
+      margin: 0 0 10px;
+      font-size: 22px;
+      line-height: 1.1;
+    }
+
+    .popup-load-error-card p {
+      margin: 0;
+      color: #5d4e40;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    .popup-load-error-card p + p {
+      margin-top: 10px;
+    }
+
+    .popup-load-error-card code {
+      font-family: "SFMono-Regular", "SFMono-Regular", Consolas, monospace;
+      font-size: 13px;
+    }
+  `,document.head.appendChild(i),g.innerHTML=`
+    <main class="popup-load-error">
+      <section class="popup-load-error-card">
+        <h1>Ghostscript needs the built extension bundle</h1>
+        <p>Run <code>corepack pnpm --filter @ghostscript/extension build</code> or <code>corepack pnpm --filter @ghostscript/extension dev</code>.</p>
+        <p>Then reload the unpacked extension from <code>apps/extension/dist</code> instead of <code>apps/extension</code>.</p>
+      </section>
+    </main>
+  `}async function L(){try{await v(()=>import("./main-CK1udz9O.js"),__vite__mapDeps([0,1,2]),import.meta.url)}catch(i){console.error("Ghostscript popup failed to load.",i),E()}}L();
