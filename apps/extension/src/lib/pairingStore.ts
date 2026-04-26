@@ -1,5 +1,4 @@
 import type {
-  ActivePairingState,
   ExtensionState,
   PairedContact,
   PairingParticipant,
@@ -140,15 +139,7 @@ export async function endLocalPairing(inviteCode: string) {
   const state = await readExtensionState();
 
   if (state.activePairing?.inviteCode === inviteCode) {
-    state.activePairing = {
-      ...state.activePairing,
-      status: "invalidated",
-      session: {
-        ...state.activePairing.session,
-        status: "invalidated",
-        invalidatedAt: new Date().toISOString(),
-      },
-    } satisfies ActivePairingState;
+    state.activePairing = null;
   }
 
   for (const contact of state.contacts) {

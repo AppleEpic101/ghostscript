@@ -54,6 +54,10 @@ textarea {
   line-height: 1.45;
 }
 
+.popup-copy--tight {
+  margin: 10px 0 0;
+}
+
 .popup-card {
   background: rgba(255, 251, 245, 0.82);
   border: 1px solid rgba(109, 81, 38, 0.12);
@@ -62,29 +66,15 @@ textarea {
   box-shadow: 0 20px 40px rgba(92, 69, 34, 0.08);
 }
 
+.popup-card--lobby {
+  display: grid;
+  gap: 12px;
+}
+
 .popup-card + .popup-card,
 .popup-card + .popup-feedback,
 .popup-feedback + .popup-feedback {
   margin-top: 12px;
-}
-
-.popup-flow-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 12px;
-}
-
-.popup-pill {
-  display: inline-flex;
-  align-items: center;
-  border-radius: 999px;
-  padding: 6px 10px;
-  font-size: 11px;
-  font-weight: 700;
-  background: #e9deca;
-  color: #6b5533;
 }
 
 .popup-label {
@@ -177,16 +167,6 @@ textarea {
   font-weight: 700;
 }
 
-.popup-linklike {
-  min-height: auto;
-  padding: 0;
-  background: transparent;
-  color: #795a2f;
-  text-align: left;
-  font-size: 12px;
-  text-decoration: underline;
-}
-
 .popup-danger {
   background: #5f241f;
   color: #fff1ed;
@@ -223,15 +203,60 @@ textarea {
   letter-spacing: 0.14em;
 }
 
-.popup-summary {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 8px 12px;
-  font-size: 13px;
+.popup-lobby-code {
+  display: inline-flex;
+  justify-self: start;
+  align-items: flex-start;
+  flex-direction: column;
+  gap: 4px;
+  border: 1px solid rgba(201, 127, 38, 0.24);
+  border-radius: 14px;
+  padding: 12px 14px;
+  background: linear-gradient(135deg, rgba(255, 247, 234, 0.96), rgba(241, 224, 193, 0.94));
+  color: #533611;
+  cursor: pointer;
+  text-align: left;
 }
 
-.popup-summary span:nth-child(odd) {
+.popup-lobby-code span {
+  font-size: 28px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+}
+
+.popup-lobby-code small {
+  color: #7c5d34;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.popup-lobby-code:hover {
+  transform: translateY(-1px);
+}
+
+.popup-lobby-code:focus {
+  outline: 2px solid rgba(207, 141, 40, 0.35);
+  outline-offset: 2px;
+}
+
+.popup-lobby-list {
+  display: grid;
+  gap: 8px;
+}
+
+.popup-lobby-person {
+  border-radius: 12px;
+  padding: 12px 13px;
+  background: rgba(255, 255, 255, 0.86);
+  border: 1px solid rgba(97, 77, 53, 0.14);
+  color: #1f2a30;
+  font-weight: 700;
+}
+
+.popup-lobby-person--waiting {
   color: #6f5a40;
+  font-weight: 600;
 }
 
 .popup-footnote {

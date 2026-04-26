@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from "react";
 import ReactDOM from "react-dom/client";
-import { PAIRING_STATUS_LABELS, type PairingStatus } from "@ghostscript/shared";
-import { createInvite, joinInvite } from "../lib/pairingApi";
+import { createInvite, getInviteSessionStatus, joinInvite, resetPairing } from "../lib/pairingApi";
 import {
+  applyInviteSessionSnapshot,
   clearInviteDraft,
+  endLocalPairing,
   readExtensionState,
   storeCreatedInvite,
   storeDiscordUsername,
@@ -12,8 +13,9 @@ import {
 } from "../lib/pairingStore";
 import "./popup.css";
 
-type PopupStep = "home" | "create-invite-details";
+type PopupStep = "home" | "create-invite-details" | "join-invite";
 type RequestStatus = "idle" | "loading" | "success" | "error";
+const LOBBY_SYNC_POLL_MS = 3000;
 
 function PopupApp() {
   const [discordUsername, setDiscordUsername] = useState("");
@@ -24,22 +26,95 @@ function PopupApp() {
   const [feedback, setFeedback] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [createdCode, setCreatedCode] = useState<string | null>(null);
-  const [pairingStatus, setPairingStatus] = useState<PairingStatus | null>(null);
-  const [pairedContactName, setPairedContactName] = useState<string | null>(null);
+  const [lobbyInviteCode, setLobbyInviteCode] = useState<string | null>(null);
+  const [lobbyParticipants, setLobbyParticipants] = useState<string[]>([]);
+  const [lobbyDetail, setLobbyDetail] = useState<string | null>(null);
+  const [isLeaving, setIsLeaving] = useState(false);
 
   useEffect(() => {
-    void (async () => {
-      const state = await readExtensionState();
-      setDiscordUsername(state.profile?.discordUsername ?? "");
-      setInviteCode(state.drafts?.inviteCode ?? "");
-      setPairingStatus(state.activePairing?.status ?? state.contacts[0]?.status ?? null);
-      setPairedContactName(state.activePairing?.counterpart?.displayName ?? state.contacts[0]?.displayName ?? null);
-
-      if (state.activePairing?.localParticipant.role === "inviter") {
-        setCreatedCode(state.activePairing.inviteCode);
-      }
-    })();
+    void hydrateFromState();
   }, []);
+
+  useEffect(() => {
+    const normalizedUsername = discordUsername.trim();
+
+    void storeDiscordUsername(normalizedUsername);
+  }, [discordUsername]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const syncLobby = async () => {
+      const state = await readExtensionState();
+      const activePairing = state.activePairing;
+
+      if (!activePairing) {
+        return;
+      }
+
+      try {
+        const snapshot = await getInviteSessionStatus(activePairing.inviteCode);
+        await applyInviteSessionSnapshot(snapshot);
+
+        if (!cancelled) {
+          await hydrateFromState();
+        }
+      } catch (nextError) {
+        if (!cancelled) {
+          setError(nextError instanceof Error ? nextError.message : "Unable to refresh the lobby.");
+        }
+      }
+    };
+
+    void syncLobby();
+    const intervalId = window.setInterval(() => {
+      void syncLobby();
+    }, LOBBY_SYNC_POLL_MS);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(intervalId);
+    };
+  }, []);
+
+  async function hydrateFromState() {
+    const state = await readExtensionState();
+    setDiscordUsername(state.profile?.discordUsername ?? "");
+    setInviteCode(state.drafts?.inviteCode ?? "");
+
+    if (!state.activePairing) {
+      setCreatedCode(null);
+      setLobbyInviteCode(null);
+      setLobbyParticipants([]);
+      setLobbyDetail(null);
+      return;
+    }
+
+    setLobbyInviteCode(state.activePairing.inviteCode);
+    setLobbyParticipants(
+      [
+        state.activePairing.localParticipant.displayName,
+        state.activePairing.counterpart?.displayName ?? null,
+      ].filter((participant): participant is string => Boolean(participant)),
+    );
+
+    if (state.activePairing.localParticipant.role === "inviter") {
+      setCreatedCode(state.activePairing.inviteCode);
+      setLobbyDetail(
+        state.activePairing.status === "paired"
+          ? "Both people are in the lobby."
+          : "Waiting for someone else to join this code.",
+      );
+      return;
+    }
+
+    setCreatedCode(null);
+    setLobbyDetail(
+      state.activePairing.counterpart
+        ? "Both people are in the lobby."
+        : "Joined the code. Waiting for the other person to appear.",
+    );
+  }
 
   async function handleCreateStep() {
     setError(null);
@@ -85,9 +160,7 @@ function PopupApp() {
         coverTopic: response.coverTopic,
       });
 
-      setCreatedCode(response.session.invite.code);
-      setPairingStatus(response.session.status);
-      setPairedContactName(null);
+      await hydrateFromState();
       setRequestStatus("success");
       setFeedback("Invite ready. Share this code, then head back to Discord once they join.");
       setError(null);
@@ -130,10 +203,7 @@ function PopupApp() {
       });
       await clearInviteDraft();
 
-      setInviteCode(response.session.invite.code);
-      setCreatedCode(null);
-      setPairingStatus(response.session.status);
-      setPairedContactName(response.inviter.displayName);
+      await hydrateFromState();
       setRequestStatus("success");
       setFeedback("Connection ready. Return to Discord to use Ghostscript with this paired contact.");
     } catch (nextError) {
@@ -148,6 +218,47 @@ function PopupApp() {
     await storeInviteDraft(normalizedCode);
   }
 
+  async function handleLeaveLobby() {
+    if (!lobbyInviteCode) {
+      return;
+    }
+
+    setIsLeaving(true);
+    setError(null);
+    setFeedback(null);
+
+    try {
+      await resetPairing({ inviteCode: lobbyInviteCode });
+      await endLocalPairing(lobbyInviteCode);
+      setCreatedCode(null);
+      setLobbyInviteCode(null);
+      setLobbyParticipants([]);
+      setLobbyDetail(null);
+      setInviteCode("");
+      setCoverTopic("");
+      setStep("home");
+      setFeedback("Left the lobby.");
+    } catch (nextError) {
+      setError(nextError instanceof Error ? nextError.message : "Unable to leave the lobby.");
+    } finally {
+      setIsLeaving(false);
+    }
+  }
+
+  async function handleCopyLobbyCode() {
+    if (!lobbyInviteCode) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(lobbyInviteCode);
+      setFeedback("Code copied to clipboard.");
+      setError(null);
+    } catch {
+      setError("Unable to copy the code right now.");
+    }
+  }
+
   const isLoading = requestStatus === "loading";
 
   return (
@@ -158,95 +269,135 @@ function PopupApp() {
         Ghostscript pairs you with one other person so Discord only sees normal-looking cover text while your extension keeps the paired connection locally.
       </p>
 
-      <section className="popup-card">
-        <div className="popup-flow-header">
-          <strong>{step === "home" ? "Pairing" : "Create invite"}</strong>
-          {pairingStatus ? <span className="popup-pill">{PAIRING_STATUS_LABELS[pairingStatus]}</span> : null}
-        </div>
-
-        {step === "home" ? (
-          <div className="popup-grid">
-            <label className="popup-label">
-              <span>Discord username</span>
-              <input
-                className="popup-input"
-                type="text"
-                value={discordUsername}
-                onChange={(event) => setDiscordUsername(event.target.value)}
-                placeholder="@yourname"
-              />
-            </label>
-
-            <label className="popup-label">
-              <span>Invite code</span>
-              <input
-                className="popup-input"
-                type="text"
-                inputMode="numeric"
-                value={inviteCode}
-                onChange={(event) => void handleInviteCodeChange(event.target.value)}
-                placeholder="4 digits"
-              />
-            </label>
-
-            <div className="popup-actions">
-              <button className="popup-button" type="button" disabled={isLoading} onClick={() => void handleCreateStep()}>
-                {isLoading ? "Working..." : "Create invite"}
-              </button>
-              <button className="popup-secondary" type="button" disabled={isLoading} onClick={() => void handleJoinInvite()}>
-                {isLoading ? "Joining..." : "Join invite"}
-              </button>
-            </div>
+      {lobbyInviteCode ? (
+        <section className="popup-card popup-card--lobby">
+          <button className="popup-lobby-code" type="button" onClick={() => void handleCopyLobbyCode()}>
+            <span>{lobbyInviteCode}</span>
+            <small>Click to copy</small>
+          </button>
+          <p className="popup-copy popup-copy--tight">{lobbyDetail}</p>
+          <div className="popup-lobby-list">
+            {lobbyParticipants.map((participant) => (
+              <div key={participant} className="popup-lobby-person">
+                {participant}
+              </div>
+            ))}
+            {lobbyParticipants.length < 2 ? (
+              <div className="popup-lobby-person popup-lobby-person--waiting">Waiting for someone else...</div>
+            ) : null}
           </div>
-        ) : (
-          <div className="popup-grid">
-            <label className="popup-label">
-              <span>Concealed-instructions topic</span>
-              <textarea
-                className="popup-textarea"
-                value={coverTopic}
-                onChange={(event) => setCoverTopic(event.target.value)}
-                placeholder="Example: casual weekend plans, coffee gear, hiking routes"
-              />
-            </label>
-
-            <div className="popup-actions popup-actions--stack">
-              <button className="popup-button" type="button" disabled={isLoading} onClick={() => void handleCreateInvite()}>
-                {isLoading ? "Creating invite..." : "Create invite code"}
-              </button>
-              <button
-                className="popup-secondary"
-                type="button"
-                disabled={isLoading}
-                onClick={() => {
-                  setStep("home");
-                  setError(null);
-                }}
-              >
-                Back
-              </button>
-            </div>
+          <div className="popup-actions popup-actions--stack">
+            <button className="popup-danger" type="button" disabled={isLeaving} onClick={() => void handleLeaveLobby()}>
+              {isLeaving ? "Leaving..." : "Leave"}
+            </button>
           </div>
-        )}
+        </section>
+      ) : (
+        <section className="popup-card">
+          {step === "home" ? (
+            <div className="popup-grid">
+              <label className="popup-label">
+                <span>Discord username</span>
+                <input
+                  className="popup-input"
+                  type="text"
+                  value={discordUsername}
+                  onChange={(event) => setDiscordUsername(event.target.value)}
+                  placeholder="@yourname"
+                />
+              </label>
 
-        {createdCode ? <div className="popup-result-code">{createdCode}</div> : null}
-        {createdCode ? <p className="popup-footnote">Share this 4-digit code directly. Joining it is enough to authorize the pairing for MVP.</p> : null}
-      </section>
+              <div className="popup-actions">
+                <button className="popup-button" type="button" disabled={isLoading} onClick={() => void handleCreateStep()}>
+                  {isLoading ? "Working..." : "Create invite"}
+                </button>
+                <button
+                  className="popup-secondary"
+                  type="button"
+                  disabled={isLoading}
+                  onClick={async () => {
+                    setError(null);
+                    setFeedback(null);
 
-      <section className="popup-card">
-        <div className="popup-summary">
-          <span>Status</span>
-          <strong>{pairingStatus ? PAIRING_STATUS_LABELS[pairingStatus] : "No pairing yet"}</strong>
-          <span>Paired contact</span>
-          <strong>{pairedContactName ?? "None yet"}</strong>
-          <span>Next step</span>
-          <strong>{pairingStatus === "paired" ? "Return to Discord" : "Create or join an invite"}</strong>
-        </div>
-        <button className="popup-linklike" type="button" onClick={() => void chrome.runtime.openOptionsPage()}>
-          Open advanced settings
-        </button>
-      </section>
+                    if (!discordUsername.trim()) {
+                      setError("Enter your Discord username first.");
+                      return;
+                    }
 
+                    await storeDiscordUsername(discordUsername.trim());
+                    setStep("join-invite");
+                  }}
+                >
+                  {isLoading ? "Working..." : "Join invite"}
+                </button>
+              </div>
+            </div>
+          ) : step === "create-invite-details" ? (
+            <div className="popup-grid">
+              <label className="popup-label">
+                <span>Concealed-instructions topic</span>
+                <textarea
+                  className="popup-textarea"
+                  value={coverTopic}
+                  onChange={(event) => setCoverTopic(event.target.value)}
+                  placeholder="Example: casual weekend plans, coffee gear, hiking routes"
+                />
+              </label>
+
+              <div className="popup-actions popup-actions--stack">
+                <button className="popup-button" type="button" disabled={isLoading} onClick={() => void handleCreateInvite()}>
+                  {isLoading ? "Creating invite..." : "Create invite code"}
+                </button>
+                <button
+                  className="popup-secondary"
+                  type="button"
+                  disabled={isLoading}
+                  onClick={() => {
+                    setStep("home");
+                    setError(null);
+                  }}
+                >
+                  Back
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="popup-grid">
+              <label className="popup-label">
+                <span>Invite code</span>
+                <input
+                  className="popup-input"
+                  type="text"
+                  inputMode="numeric"
+                  value={inviteCode}
+                  onChange={(event) => void handleInviteCodeChange(event.target.value)}
+                  placeholder="4 digits"
+                />
+              </label>
+
+              <div className="popup-actions popup-actions--stack">
+                <button className="popup-button" type="button" disabled={isLoading} onClick={() => void handleJoinInvite()}>
+                  {isLoading ? "Joining..." : "Join invite"}
+                </button>
+                <button
+                  className="popup-secondary"
+                  type="button"
+                  disabled={isLoading}
+                  onClick={() => {
+                    setStep("home");
+                    setError(null);
+                  }}
+                >
+                  Back
+                </button>
+              </div>
+            </div>
+          )}
+
+          {createdCode ? <div className="popup-result-code">{createdCode}</div> : null}
+          {createdCode ? <p className="popup-footnote">Share this 4-digit code directly.</p> : null}
+        </section>
+      )}
       {feedback ? <p className="popup-feedback popup-feedback--success">{feedback}</p> : null}
       {error ? <p className="popup-feedback popup-feedback--error">{error}</p> : null}
     </div>
