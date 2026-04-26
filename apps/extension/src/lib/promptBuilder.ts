@@ -18,8 +18,6 @@ export function buildConversationPrompt(params: PromptBuilderParams) {
     "Use only the paired Discord chat history below to stay on-topic.",
     "",
     orderedLines.join("\n"),
-    "",
-    "Current Ghostscript reply turn:",
   ]
     .filter(Boolean)
     .join("\n");
