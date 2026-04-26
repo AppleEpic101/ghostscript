@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import type { LLMEncodingConfig } from "@ghostscript/shared";
+import { DEFAULT_TRANSPORT_CONFIG_ID, type LLMEncodingConfig } from "@ghostscript/shared";
 import {
   __internal_createAdapter,
   decodeRankedTextToBitstring,
@@ -9,14 +9,13 @@ import {
 
 const PROMPT = [
   "Cover text topic: coffee plans and weekend errands",
-  "Respond to this message in about 18 words.",
   "Alice: want to grab coffee after work?",
   "Bob: yeah maybe near the station if the line is not wild",
 ].join("\n");
 
 function buildConfig(overrides: Partial<LLMEncodingConfig> = {}): LLMEncodingConfig {
   return {
-    configId: "ghostscript-default-v1",
+    configId: DEFAULT_TRANSPORT_CONFIG_ID,
     provider: "ghostscript-bridge",
     modelId: "ghostscript-rank-lm-v1",
     tokenizerId: "ghostscript-word-tokenizer-v1",
@@ -107,4 +106,31 @@ test("decode returns null when the visible text does not match a valid candidate
   });
 
   assert.equal(decoded, null);
+});
+
+test("rank transport ignores wordTarget as protocol state", () => {
+  const bitstring = "000000000000000000000000000100000110100001101001";
+  const config = buildConfig();
+  const shortTargetVisibleText = encodeBitstringAsRankedText({
+    prompt: PROMPT,
+    bitstring,
+    wordTarget: 10,
+    config,
+  });
+  const longTargetVisibleText = encodeBitstringAsRankedText({
+    prompt: PROMPT,
+    bitstring,
+    wordTarget: 28,
+    config,
+  });
+
+  assert.equal(shortTargetVisibleText, longTargetVisibleText);
+  assert.equal(
+    decodeRankedTextToBitstring({
+      prompt: PROMPT,
+      visibleText: longTargetVisibleText,
+      config,
+    }),
+    bitstring,
+  );
 });

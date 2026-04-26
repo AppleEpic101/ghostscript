@@ -1,8 +1,15 @@
-import type { GhostscriptThreadMessage, LLMEncodingConfig } from "@ghostscript/shared";
+import {
+  DEFAULT_TRANSPORT_CONFIG_ID,
+  SUPPORTED_TRANSPORT_CONFIG_IDS,
+  TRANSPORT_PROTOCOL_VERSION,
+  type GhostscriptThreadMessage,
+  type LLMEncodingConfig,
+  type SupportedTransportConfigId,
+} from "@ghostscript/shared";
+import { getGhostscriptApiBaseUrl } from "./apiBaseUrl";
 
-const DEFAULT_GHOSTSCRIPT_API_BASE_URL = "http://localhost:8787";
 const DEFAULT_ENCODING_CONFIG: LLMEncodingConfig = {
-  configId: "ghostscript-default-v1",
+  configId: DEFAULT_TRANSPORT_CONFIG_ID,
   provider: "ghostscript-bridge",
   modelId: "ghostscript-rank-lm-v1",
   tokenizerId: "ghostscript-word-tokenizer-v1",
@@ -36,10 +43,15 @@ interface DecodeResponse {
 export interface DecodeVisibleTextParams {
   visibleText: string;
   prompt: string;
+  config: LLMEncodingConfig;
 }
 
 export function getDefaultEncodingConfig() {
   return DEFAULT_ENCODING_CONFIG;
+}
+
+export function getSupportedEncodingConfigs() {
+  return SUPPORTED_TRANSPORT_CONFIG_IDS.map((configId) => getEncodingConfigById(configId));
 }
 
 export async function encodeBitstringAsCoverText(params: EncodeRequest) {
@@ -51,7 +63,7 @@ export async function decodeCoverTextToBitstring(params: DecodeVisibleTextParams
   const response = await requestBridgeJson<DecodeResponse>("/decode", {
     visibleText: params.visibleText,
     prompt: params.prompt,
-    config: DEFAULT_ENCODING_CONFIG,
+    config: params.config,
   });
 
   return response.bitstring;
@@ -59,7 +71,6 @@ export async function decodeCoverTextToBitstring(params: DecodeVisibleTextParams
 
 export function buildConversationPrompt(params: {
   coverTopic: string;
-  wordTarget: number;
   messages: GhostscriptThreadMessage[];
 }) {
   const orderedLines = params.messages.map(
@@ -68,8 +79,7 @@ export function buildConversationPrompt(params: {
 
   return [
     `Cover text topic: ${params.coverTopic}`,
-    `Respond to this message in about ${params.wordTarget} words.`,
-    "Use the chat history below between the paired Discord usernames to stay on-topic.",
+    "Use the paired Discord chat history below to stay on-topic.",
     "",
     orderedLines.join("\n"),
   ]
@@ -77,17 +87,30 @@ export function buildConversationPrompt(params: {
     .join("\n");
 }
 
-function getBridgeBaseUrl() {
-  return (
-    import.meta.env.VITE_GHOSTSCRIPT_API_BASE_URL?.trim().replace(/\/$/, "") ?? DEFAULT_GHOSTSCRIPT_API_BASE_URL
-  );
+export async function fingerprintTransportPrompt(prompt: string) {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(prompt));
+  return Array.from(new Uint8Array(digest).slice(0, 12), (value) => value.toString(16).padStart(2, "0")).join("");
+}
+
+export function getTransportProtocolVersion() {
+  return TRANSPORT_PROTOCOL_VERSION;
+}
+
+function getEncodingConfigById(configId: SupportedTransportConfigId) {
+  switch (configId) {
+    case DEFAULT_TRANSPORT_CONFIG_ID:
+      return DEFAULT_ENCODING_CONFIG;
+  }
+
+  throw new Error(`Unsupported Ghostscript transport config: ${configId}`);
 }
 
 async function requestBridgeJson<T>(path: string, body: unknown): Promise<T> {
   let response: Response;
+  const baseUrl = getGhostscriptApiBaseUrl();
 
   try {
-    response = await fetch(`${getBridgeBaseUrl()}${path}`, {
+    response = await fetch(`${baseUrl}${path}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -95,7 +118,7 @@ async function requestBridgeJson<T>(path: string, body: unknown): Promise<T> {
   } catch (error) {
     if (error instanceof TypeError) {
       throw new Error(
-        `Unable to reach the Ghostscript API at ${getBridgeBaseUrl()}. Confirm the local API is running and reload the extension if its URL changed.`,
+        `Unable to reach the Ghostscript API at ${baseUrl}. Confirm the configured endpoint is reachable and reload the extension if its URL changed.`,
       );
     }
 

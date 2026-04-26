@@ -7,14 +7,7 @@ import type {
   ResetPairingRequest,
   ResetPairingResponse,
 } from "@ghostscript/shared";
-
-const DEFAULT_GHOSTSCRIPT_API_BASE_URL = "http://localhost:8787";
-
-function getPairingApiBaseUrl() {
-  return (
-    import.meta.env.VITE_GHOSTSCRIPT_API_BASE_URL?.trim().replace(/\/$/, "") ?? DEFAULT_GHOSTSCRIPT_API_BASE_URL
-  );
-}
+import { getGhostscriptApiBaseUrl } from "./apiBaseUrl";
 
 export function createInvite(request: CreateInviteRequest) {
   return requestJson<CreateInviteResponse>("/pairing/invites", request);
@@ -34,9 +27,10 @@ export function resetPairing(request: ResetPairingRequest) {
 
 async function requestJson<T>(path: string, body?: unknown, method = "POST"): Promise<T> {
   let response: Response;
+  const baseUrl = getGhostscriptApiBaseUrl();
 
   try {
-    response = await fetch(`${getPairingApiBaseUrl()}${path}`, {
+    response = await fetch(`${baseUrl}${path}`, {
       method,
       headers: body === undefined ? undefined : { "Content-Type": "application/json" },
       body: body === undefined ? undefined : JSON.stringify(body),
@@ -44,7 +38,7 @@ async function requestJson<T>(path: string, body?: unknown, method = "POST"): Pr
   } catch (error) {
     if (error instanceof TypeError) {
       throw new Error(
-        `Unable to reach the Ghostscript API at ${getPairingApiBaseUrl()}. Confirm the local API is running and reload the extension if its URL changed.`,
+        `Unable to reach the Ghostscript API at ${baseUrl}. Confirm the configured endpoint is reachable and reload the extension if its URL changed.`,
       );
     }
 

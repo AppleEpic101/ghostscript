@@ -20,7 +20,6 @@ test("encrypted envelopes survive rank-selection transport end to end", async ()
   const bob = await generateIdentityBundle();
   const prompt = [
     "Cover text topic: weekend plans and coffee shops",
-    "Respond to this message in about 20 words.",
     "Alice: are you still free later?",
     "Bob: probably, depends on how late the line is near the station",
   ].join("\n");

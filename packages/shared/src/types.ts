@@ -113,8 +113,18 @@ export interface ResetPairingResponse {
 
 export type PendingSendStatus = "idle" | "encoding" | "awaiting-discord-confirm" | "failed";
 
+export type TransportProtocolVersion = 1;
+export type SupportedTransportConfigId = "ghostscript-default-v1";
+
+export interface EncodedGhostscriptMessage {
+  visibleText: string;
+  configId: SupportedTransportConfigId;
+  transportProtocolVersion: TransportProtocolVersion;
+  promptFingerprint: string;
+}
+
 export interface LLMEncodingConfig {
-  configId: string;
+  configId: SupportedTransportConfigId;
   provider: string;
   modelId: string;
   tokenizerId: string;
@@ -131,7 +141,7 @@ export interface LLMEncodingConfig {
 }
 
 export interface MessageEnvelope {
-  v: 1;
+  v: TransportProtocolVersion;
   senderId: string;
   msgId: number;
   ciphertext: string;

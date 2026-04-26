@@ -6,9 +6,11 @@ import type {
   ResetPairingRequest,
 } from "@ghostscript/shared";
 import { LlmService, type DecodeRequestBody, type EncodeRequestBody } from "./llmService";
+import { createRateLimiter } from "./rateLimit";
 import { ApiError, PairingService } from "./service";
 
 const port = Number.parseInt(process.env.GHOSTSCRIPT_API_PORT ?? "8787", 10);
+const rateLimiter = createRateLimiter();
 const pairingService = new PairingService();
 const llmService = new LlmService();
 let isShuttingDown = false;
@@ -25,6 +27,7 @@ const server = createServer(async (request, response) => {
 
     const url = new URL(request.url ?? "/", `http://${request.headers.host ?? "localhost"}`);
     const pathname = url.pathname;
+    rateLimiter.enforce(request, pathname);
 
     if (request.method === "GET" && pathname === "/health") {
       sendJson(response, 200, {
@@ -97,7 +100,7 @@ server.on("error", (error: NodeJS.ErrnoException) => {
 });
 
 server.listen(port, () => {
-  console.log(`Ghostscript API listening on http://localhost:${port}`);
+  console.log(`Ghostscript API listening on port ${port}`);
 });
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {

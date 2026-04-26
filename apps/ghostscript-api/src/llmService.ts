@@ -1,5 +1,9 @@
 import OpenAI from "openai";
-import type { LLMEncodingConfig } from "@ghostscript/shared";
+import {
+  SUPPORTED_TRANSPORT_CONFIG_IDS,
+  TRANSPORT_PROTOCOL_VERSION,
+  type LLMEncodingConfig,
+} from "@ghostscript/shared";
 import { ApiError } from "./service";
 import {
   decodeRankedTextToBitstring,
@@ -31,6 +35,9 @@ const PASSTHROUGH_MIN_WORD_TARGET = 8;
 const PASSTHROUGH_MAX_WORD_TARGET = 28;
 const PASSTHROUGH_MIN_CHAR_TARGET = 70;
 const PASSTHROUGH_MAX_CHAR_TARGET = 220;
+const MAX_PROMPT_CHARS = 12_000;
+const MAX_VISIBLE_TEXT_CHARS = 4_000;
+const MAX_BITSTRING_LENGTH = 131_072;
 
 export class LlmService {
   getHealth() {
@@ -41,6 +48,8 @@ export class LlmService {
       model: mode === "passthrough" ? passthroughModel : metadata.modelId,
       tokenizerId: metadata.tokenizerId,
       backend: metadata.backend,
+      transportProtocolVersion: TRANSPORT_PROTOCOL_VERSION,
+      supportedConfigIds: SUPPORTED_TRANSPORT_CONFIG_IDS,
       configured: Boolean(openai),
     };
   }
@@ -61,6 +70,7 @@ export class LlmService {
         visibleText,
         mode,
         configId: config.configId,
+        transportProtocolVersion: TRANSPORT_PROTOCOL_VERSION,
       };
     }
 
@@ -104,6 +114,7 @@ export class LlmService {
         }),
         mode,
         configId: config.configId,
+        transportProtocolVersion: TRANSPORT_PROTOCOL_VERSION,
       };
     }
 
@@ -209,25 +220,55 @@ function getBridgeMode(value: string | undefined): BridgeMode {
 }
 
 function validateEncodeRequest(body: EncodeRequestBody) {
-  if (!body.prompt.trim()) {
+  if (typeof body.prompt !== "string" || !body.prompt.trim()) {
     throw new ApiError(400, "prompt is required.");
   }
 
-  if (!/^[01]+$/.test(body.bitstring)) {
+  if (body.prompt.length > MAX_PROMPT_CHARS) {
+    throw new ApiError(400, `prompt must be at most ${MAX_PROMPT_CHARS} characters.`);
+  }
+
+  if (typeof body.bitstring !== "string" || !/^[01]+$/.test(body.bitstring)) {
     throw new ApiError(400, "bitstring must contain only 0 and 1 characters.");
   }
 
-  if (!Number.isFinite(body.wordTarget) || body.wordTarget <= 0) {
+  if (body.bitstring.length > MAX_BITSTRING_LENGTH) {
+    throw new ApiError(400, `bitstring must be at most ${MAX_BITSTRING_LENGTH} bits.`);
+  }
+
+  if (!Number.isFinite(body.wordTarget) || body.wordTarget <= 0 || body.wordTarget > 512) {
     throw new ApiError(400, "wordTarget must be a positive number.");
   }
+
+  validateEncodingConfig(body.config);
 }
 
 function validateDecodeRequest(body: DecodeRequestBody) {
-  if (!body.prompt.trim()) {
+  if (typeof body.prompt !== "string" || !body.prompt.trim()) {
     throw new ApiError(400, "prompt is required.");
   }
 
-  if (!body.visibleText.trim()) {
+  if (body.prompt.length > MAX_PROMPT_CHARS) {
+    throw new ApiError(400, `prompt must be at most ${MAX_PROMPT_CHARS} characters.`);
+  }
+
+  if (typeof body.visibleText !== "string" || !body.visibleText.trim()) {
     throw new ApiError(400, "visibleText is required.");
+  }
+
+  if (body.visibleText.length > MAX_VISIBLE_TEXT_CHARS) {
+    throw new ApiError(400, `visibleText must be at most ${MAX_VISIBLE_TEXT_CHARS} characters.`);
+  }
+
+  validateEncodingConfig(body.config);
+}
+
+function validateEncodingConfig(config: LLMEncodingConfig | undefined) {
+  if (!config) {
+    return;
+  }
+
+  if (!SUPPORTED_TRANSPORT_CONFIG_IDS.includes(config.configId)) {
+    throw new ApiError(400, `Unsupported transport configId: ${config.configId}`);
   }
 }

@@ -1,10 +1,10 @@
-import type { LLMEncodingConfig } from "@ghostscript/shared";
+import { DEFAULT_TRANSPORT_CONFIG_ID, type LLMEncodingConfig } from "@ghostscript/shared";
 
 const TOKEN_PATTERN = /[A-Za-z0-9]+(?:'[A-Za-z0-9]+)?|[.,!?;:]/g;
 const PUNCTUATION_TOKENS = new Set([".", ",", "!", "?", ";", ":"]);
 const SENTENCE_END_TOKENS = new Set([".", "!", "?"]);
 const DEFAULT_ENCODING_CONFIG: LLMEncodingConfig = {
-  configId: "ghostscript-default-v1",
+  configId: DEFAULT_TRANSPORT_CONFIG_ID,
   provider: "ghostscript-bridge",
   modelId: "ghostscript-rank-lm-v1",
   tokenizerId: "ghostscript-word-tokenizer-v1",
@@ -300,7 +300,6 @@ function fail(message: string): never {
 
 class PromptConditionedLocalTransportAdapter {
   private readonly promptTokenIds: number[];
-  private readonly wordTarget: number;
   private readonly config: LLMEncodingConfig;
   private readonly vocabulary: string[];
   private readonly tokenToId = new Map<string, number>();
@@ -312,9 +311,8 @@ class PromptConditionedLocalTransportAdapter {
   private readonly trigramTotals = new Map<string, number>();
   private totalObservedTokens = 0;
 
-  constructor(prompt: string, wordTarget: number | undefined, config: LLMEncodingConfig) {
+  constructor(prompt: string, _wordTarget: number | undefined, config: LLMEncodingConfig) {
     this.config = config;
-    this.wordTarget = inferWordTarget(prompt, wordTarget);
 
     const promptTokens = extractRawTokens(prompt);
     const baseVocabulary = Array.from(new Set([...extractRawTokens(BASE_CORPUS.join(" ")), ...PUNCTUATION_TOKENS]));
@@ -481,9 +479,9 @@ class PromptConditionedLocalTransportAdapter {
     }
 
     if (PUNCTUATION_TOKENS.has(candidate)) {
-      score += scorePunctuation(candidate, previousToken, wordsGenerated, this.wordTarget);
+      score += scorePunctuation(candidate, previousToken, wordsGenerated);
     } else {
-      score += scoreWord(candidate, previousToken, wordsGenerated, this.wordTarget);
+      score += scoreWord(candidate, previousToken, wordsGenerated);
     }
 
     return score;
@@ -577,18 +575,6 @@ function extractTopicTokens(tokens: string[]) {
   return tokens.filter((token) => !STOP_WORDS.has(token) && !PUNCTUATION_TOKENS.has(token) && token.length >= 3);
 }
 
-function inferWordTarget(prompt: string, fallbackWordTarget: number | undefined) {
-  const fromPrompt = prompt.match(/about\s+(\d+)\s+words?/i);
-  if (fromPrompt) {
-    const parsed = Number.parseInt(fromPrompt[1] ?? "", 10);
-    if (Number.isFinite(parsed) && parsed > 0) {
-      return Math.max(10, parsed);
-    }
-  }
-
-  return Math.max(10, Math.round(fallbackWordTarget ?? 18));
-}
-
 function arraysEqual(left: number[], right: number[]) {
   if (left.length !== right.length) {
     return false;
@@ -605,17 +591,17 @@ function increment(store: Map<string | number, number>, key: string | number, am
   store.set(key, (store.get(key) ?? 0) + amount);
 }
 
-function scorePunctuation(candidate: string, previousToken: string | null, wordCount: number, wordTarget: number) {
+function scorePunctuation(candidate: string, previousToken: string | null, wordCount: number) {
   if (!previousToken || PUNCTUATION_TOKENS.has(previousToken)) {
     return -6;
   }
 
   if (candidate === ",") {
-    return wordCount >= 4 && wordCount < wordTarget ? 0.3 : -0.8;
+    return wordCount >= 4 && wordCount < 14 ? 0.3 : -0.8;
   }
 
   if (candidate === ":") {
-    return wordCount >= 3 && wordCount < Math.max(6, wordTarget - 2) ? -0.25 : -1.2;
+    return wordCount >= 3 && wordCount < 8 ? -0.25 : -1.2;
   }
 
   if (candidate === ";") {
@@ -627,8 +613,8 @@ function scorePunctuation(candidate: string, previousToken: string | null, wordC
       return -2.4;
     }
 
-    if (wordCount >= wordTarget - 2) {
-      return 1.4;
+    if (wordCount >= 9) {
+      return 0.9;
     }
 
     return 0.15;
@@ -637,7 +623,7 @@ function scorePunctuation(candidate: string, previousToken: string | null, wordC
   return -0.5;
 }
 
-function scoreWord(candidate: string, previousToken: string | null, wordCount: number, wordTarget: number) {
+function scoreWord(candidate: string, previousToken: string | null, wordCount: number) {
   let score = 0;
 
   if (!previousToken || SENTENCE_END_TOKENS.has(previousToken)) {
@@ -656,8 +642,8 @@ function scoreWord(candidate: string, previousToken: string | null, wordCount: n
     score += 0.2;
   }
 
-  if (wordCount >= wordTarget + 6) {
-    score -= 0.9;
+  if (wordCount >= 18) {
+    score -= 0.6;
   }
 
   if (candidate === "the" || candidate === "a") {

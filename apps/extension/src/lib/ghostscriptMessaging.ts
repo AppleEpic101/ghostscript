@@ -20,7 +20,15 @@ import {
   markSuppressedMessage,
   storeDecodedMessage,
 } from "./ghostscriptState";
-import { buildConversationPrompt, decodeCoverTextToBitstring, encodeBitstringAsCoverText, getDefaultEncodingConfig } from "./llmBridge";
+import {
+  buildConversationPrompt,
+  decodeCoverTextToBitstring,
+  encodeBitstringAsCoverText,
+  fingerprintTransportPrompt,
+  getDefaultEncodingConfig,
+  getSupportedEncodingConfigs,
+  getTransportProtocolVersion,
+} from "./llmBridge";
 import { readExtensionState } from "./pairingStore";
 
 const DISCORD_MAX_MESSAGE_LENGTH = 2000;
@@ -48,6 +56,7 @@ export async function sendEncryptedGhostscriptMessage(params: {
     getPairingEstablishedAt(params.pairing),
   );
   await cacheConversationMessages(threadId, conversationMessages);
+  const conversation = await readConversationState(threadId);
 
   const material = await getSessionCryptoMaterial(params.pairing);
   const msgId = await reserveNextMessageId(threadId);
@@ -57,6 +66,7 @@ export async function sendEncryptedGhostscriptMessage(params: {
     sessionId: params.pairing.session.id,
     status: "encoding",
     expectedCoverText: "",
+    encodedMessage: null,
     startedAt: Date.now(),
     msgId,
     error: null,
@@ -65,17 +75,11 @@ export async function sendEncryptedGhostscriptMessage(params: {
   try {
     const envelope = await encryptMessageEnvelope(params.plaintext, msgId, material);
     const bitstring = serializeEnvelopeToBitstring(envelope);
-    console.info("Ghostscript encrypted message", {
-      envelope,
-      bitstring,
-      ciphertext: envelope.ciphertext,
-    });
     const encodingConfig = getDefaultEncodingConfig();
     const wordTarget = estimateWordTarget(bitstring.length, encodingConfig.bitsPerStep);
     const prompt = buildConversationPrompt({
       coverTopic: params.pairing.defaultCoverTopic ?? "general chat",
-      wordTarget,
-      messages: buildBoundedConversationWindow(conversationMessages),
+      messages: buildBoundedConversationWindow(conversation.cachedMessages),
     });
     const visibleText = await encodeBitstringAsCoverText({
       prompt,
@@ -83,6 +87,12 @@ export async function sendEncryptedGhostscriptMessage(params: {
       wordTarget,
       config: encodingConfig,
     });
+    const encodedMessage = {
+      visibleText,
+      configId: encodingConfig.configId,
+      transportProtocolVersion: getTransportProtocolVersion(),
+      promptFingerprint: await fingerprintTransportPrompt(prompt),
+    };
 
     if (visibleText.length > DISCORD_MAX_MESSAGE_LENGTH) {
       throw new Error(
@@ -90,17 +100,12 @@ export async function sendEncryptedGhostscriptMessage(params: {
       );
     }
 
-    console.info("Ghostscript cover message", {
-      visibleText,
-      prompt,
-      wordTarget,
-    });
-
     await setPendingSend(threadId, {
       threadId,
       sessionId: params.pairing.session.id,
       status: "awaiting-discord-confirm",
       expectedCoverText: visibleText,
+      encodedMessage,
       startedAt: Date.now(),
       msgId,
       error: null,
@@ -114,6 +119,7 @@ export async function sendEncryptedGhostscriptMessage(params: {
       sessionId: params.pairing.session.id,
       status: "failed",
       expectedCoverText: "",
+      encodedMessage: null,
       startedAt: Date.now(),
       msgId,
       error: error instanceof Error ? error.message : "Ghostscript send failed.",
@@ -211,49 +217,86 @@ async function decodeIncomingMessages(
     }
 
     const priorMessages = messages.filter((candidate) => compareMessageOrder(candidate, message) < 0);
+    const cachedPriorMessages = conversation.cachedMessages.filter((candidate) => compareMessageOrder(candidate, message) < 0);
+    const visibleHistoryWindow = buildBoundedConversationWindow(priorMessages);
+    const cachedHistoryWindow = buildBoundedConversationWindow(cachedPriorMessages);
+
+    if (!areConversationWindowsEqual(visibleHistoryWindow, cachedHistoryWindow)) {
+      continue;
+    }
+
     const prompt = buildConversationPrompt({
       coverTopic: params.pairing.defaultCoverTopic ?? "general chat",
-      wordTarget: estimateWordTarget(message.text.length * 6, getDefaultEncodingConfig().bitsPerStep),
-      messages: buildBoundedConversationWindow(priorMessages),
+      messages: cachedHistoryWindow,
     });
+    const promptFingerprint = await fingerprintTransportPrompt(prompt);
+    let decodedMessage = false;
+    let sawFramedPayload = false;
 
-    let bitstring: string | null = null;
-    try {
-      bitstring = await decodeCoverTextToBitstring({
-        visibleText: message.text,
-        prompt,
-      });
-    } catch {
-      continue;
+    for (const encodingConfig of getSupportedEncodingConfigs()) {
+      let bitstring: string | null = null;
+      try {
+        bitstring = await decodeCoverTextToBitstring({
+          visibleText: message.text,
+          prompt,
+          config: encodingConfig,
+        });
+      } catch {
+        continue;
+      }
+
+      if (!bitstring) {
+        continue;
+      }
+
+      try {
+        const envelope = deserializeEnvelopeFromBitstring(bitstring);
+        const plaintext = await decryptMessageEnvelope(envelope, material);
+        await storeDecodedMessage(threadId, message.discordMessageId, {
+          status: "decoded",
+          plaintext,
+          visibleText: message.text,
+          encodedMessage: {
+            visibleText: message.text,
+            configId: encodingConfig.configId,
+            transportProtocolVersion: getTransportProtocolVersion(),
+            promptFingerprint,
+          },
+          processedAt: new Date().toISOString(),
+          activeView: "decrypted",
+        });
+        renderDecodedMessageOverlay({
+          threadId,
+          discordMessageId: message.discordMessageId,
+          status: "decoded",
+          plaintext,
+          visibleText: message.text,
+          activeView: "decrypted",
+        });
+        decodedMessage = true;
+        sawFramedPayload = false;
+        break;
+      } catch {
+        try {
+          deserializeEnvelopeFromBitstring(bitstring);
+          sawFramedPayload = true;
+        } catch {
+          continue;
+        }
+      }
     }
 
-    if (!bitstring) {
-      continue;
-    }
-
-    try {
-      const envelope = deserializeEnvelopeFromBitstring(bitstring);
-      const plaintext = await decryptMessageEnvelope(envelope, material);
-      await storeDecodedMessage(threadId, message.discordMessageId, {
-        status: "decoded",
-        plaintext,
-        visibleText: message.text,
-        processedAt: new Date().toISOString(),
-        activeView: "decrypted",
-      });
-      renderDecodedMessageOverlay({
-        threadId,
-        discordMessageId: message.discordMessageId,
-        status: "decoded",
-        plaintext,
-        visibleText: message.text,
-        activeView: "decrypted",
-      });
-    } catch {
+    if (!decodedMessage && sawFramedPayload) {
       await storeDecodedMessage(threadId, message.discordMessageId, {
         status: "tampered",
         plaintext: null,
         visibleText: message.text,
+        encodedMessage: {
+          visibleText: message.text,
+          configId: getDefaultEncodingConfig().configId,
+          transportProtocolVersion: getTransportProtocolVersion(),
+          promptFingerprint,
+        },
         processedAt: new Date().toISOString(),
         activeView: "decrypted",
       });
@@ -349,4 +392,20 @@ function compareMessageOrder(left: GhostscriptThreadMessage, right: GhostscriptT
 
 function getPairingEstablishedAt(pairing: ActivePairingState) {
   return pairing.session.joinedAt ?? pairing.session.createdAt;
+}
+
+function areConversationWindowsEqual(left: GhostscriptThreadMessage[], right: GhostscriptThreadMessage[]) {
+  if (left.length !== right.length) {
+    return false;
+  }
+
+  return left.every((message, index) => {
+    const candidate = right[index];
+    return (
+      candidate !== undefined &&
+      message.discordMessageId === candidate.discordMessageId &&
+      message.authorUsername === candidate.authorUsername &&
+      message.text === candidate.text
+    );
+  });
 }

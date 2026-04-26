@@ -1,4 +1,4 @@
-import type { GhostscriptThreadMessage, PendingSendStatus } from "@ghostscript/shared";
+import type { EncodedGhostscriptMessage, GhostscriptThreadMessage, PendingSendStatus } from "@ghostscript/shared";
 import {
   createWrappingSecret,
   type LocalIdentityBundle,
@@ -15,6 +15,7 @@ export interface PendingSendState {
   sessionId: string;
   status: Exclude<PendingSendStatus, "idle">;
   expectedCoverText: string;
+  encodedMessage: EncodedGhostscriptMessage | null;
   startedAt: number;
   msgId: number;
   error: string | null;
@@ -26,6 +27,7 @@ export interface DecodedGhostscriptMessageState {
   status: "decoded" | "tampered";
   plaintext: string | null;
   visibleText: string;
+  encodedMessage: EncodedGhostscriptMessage | null;
   processedAt: string;
   activeView: DecodedGhostscriptMessageView;
 }
@@ -136,7 +138,7 @@ export async function updateConversationState(
 export async function cacheConversationMessages(threadId: string, messages: GhostscriptThreadMessage[]) {
   return updateConversationState(threadId, (conversation) => ({
     ...conversation,
-    cachedMessages: messages,
+    cachedMessages: mergeConversationMessages(conversation.cachedMessages, messages),
   }));
 }
 
@@ -237,12 +239,19 @@ function createEmptyConversationState(threadId: string): GhostscriptConversation
 function normalizeConversationState(conversation: GhostscriptConversationState): GhostscriptConversationState {
   return {
     ...conversation,
+    pendingSend: conversation.pendingSend
+      ? {
+          ...conversation.pendingSend,
+          encodedMessage: conversation.pendingSend.encodedMessage ?? null,
+        }
+      : null,
     decodedMessages: Object.fromEntries(
       Object.entries(conversation.decodedMessages).map(([discordMessageId, message]) => [
         discordMessageId,
         {
           ...message,
           activeView: message.activeView ?? "decrypted",
+          encodedMessage: message.encodedMessage ?? null,
         },
       ]),
     ),
@@ -251,4 +260,31 @@ function normalizeConversationState(conversation: GhostscriptConversationState):
 
 function isWrappedIdentityBundle(value: WrappedIdentityBundle | LegacyLocalIdentityKeypair): value is WrappedIdentityBundle {
   return "wrappedKeyMaterial" in value && "wrapSalt" in value && "wrapNonce" in value;
+}
+
+function mergeConversationMessages(
+  existingMessages: GhostscriptThreadMessage[],
+  nextMessages: GhostscriptThreadMessage[],
+) {
+  const merged = new Map<string, GhostscriptThreadMessage>();
+
+  for (const message of [...existingMessages, ...nextMessages]) {
+    merged.set(message.discordMessageId, message);
+  }
+
+  return Array.from(merged.values()).sort(compareMessagesAscending);
+}
+
+function compareMessagesAscending(left: GhostscriptThreadMessage, right: GhostscriptThreadMessage) {
+  if (left.snowflakeTimestamp !== right.snowflakeTimestamp) {
+    return left.snowflakeTimestamp.localeCompare(right.snowflakeTimestamp);
+  }
+
+  try {
+    const leftId = BigInt(left.discordMessageId);
+    const rightId = BigInt(right.discordMessageId);
+    return leftId < rightId ? -1 : leftId > rightId ? 1 : 0;
+  } catch {
+    return left.discordMessageId.localeCompare(right.discordMessageId);
+  }
 }
