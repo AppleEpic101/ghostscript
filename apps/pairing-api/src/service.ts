@@ -18,6 +18,7 @@ interface ParticipantRecord {
   session_id: string;
   role: "inviter" | "joiner";
   display_name: string;
+  identity_public_key: string | null;
   created_at: string;
 }
 
@@ -55,11 +56,13 @@ export class PairingService {
   async createInvite(request: CreateInviteRequest): Promise<CreateInviteResponse> {
     validateDisplayName(request.inviterName, "inviterName");
     validateCoverTopic(request.coverTopic);
+    validateIdentityPublicKey(request.identityPublicKey);
 
     const expiresAt = new Date(Date.now() + INVITE_TTL_MS).toISOString();
     const { data, error } = await supabase.rpc("create_pairing_invite", {
       inviter_name_input: request.inviterName.trim(),
       cover_topic_input: request.coverTopic.trim(),
+      identity_public_key_input: request.identityPublicKey.trim(),
       expires_at_input: expiresAt,
     });
 
@@ -84,10 +87,12 @@ export class PairingService {
   async joinInvite(inviteCode: string, request: JoinInviteRequest): Promise<JoinInviteResponse> {
     validateInviteCode(inviteCode);
     validateDisplayName(request.joinerName, "joinerName");
+    validateIdentityPublicKey(request.identityPublicKey);
 
     const { error } = await supabase.rpc("claim_pairing_invite", {
       invite_code_input: inviteCode.trim(),
       joiner_name_input: request.joinerName.trim(),
+      identity_public_key_input: request.identityPublicKey.trim(),
     });
 
     if (error) {
@@ -181,6 +186,7 @@ async function loadPairingRecord(inviteCode: string): Promise<PairingSessionReco
           session_id,
           role,
           display_name,
+          identity_public_key,
           created_at
         ),
         joiner:pairing_participants!pairing_sessions_joiner_fk (
@@ -188,6 +194,7 @@ async function loadPairingRecord(inviteCode: string): Promise<PairingSessionReco
           session_id,
           role,
           display_name,
+          identity_public_key,
           created_at
         )
       `,
@@ -255,6 +262,7 @@ function mapParticipant(record: ParticipantRecord): PairingParticipant {
     sessionId: record.session_id,
     role: record.role,
     displayName: record.display_name,
+    identityPublicKey: record.identity_public_key,
     createdAt: record.created_at,
   };
 }
@@ -304,5 +312,11 @@ function validateDisplayName(value: string, fieldName: string) {
 function validateCoverTopic(value: string) {
   if (!value.trim()) {
     throw new ApiError(400, "coverTopic is required.");
+  }
+}
+
+function validateIdentityPublicKey(value: string) {
+  if (!value.trim()) {
+    throw new ApiError(400, "identityPublicKey is required.");
   }
 }

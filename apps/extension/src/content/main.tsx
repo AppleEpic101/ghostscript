@@ -1,6 +1,9 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import ReactDOM, { type Root } from "react-dom/client";
 import { PAIRING_STATUS_LABELS } from "@ghostscript/shared";
+import { getCurrentDiscordThreadId, getDiscordNativeTextbox } from "../lib/discord";
+import { readConversationState } from "../lib/ghostscriptState";
+import { sendEncryptedGhostscriptMessage, syncGhostscriptConversation } from "../lib/ghostscriptMessaging";
 import { applyInviteSessionSnapshot, readExtensionState } from "../lib/pairingStore";
 import { getInviteSessionStatus } from "../lib/pairingApi";
 import overlayStyles from "./styles.css?inline";
@@ -14,6 +17,7 @@ const COMPOSER_OVERLAY_TABBAR_HEIGHT = 42;
 const COMPOSER_OVERLAY_MIN_HEIGHT = 128;
 const COMPOSER_OVERLAY_CONVERSATION_GAP = 14;
 const SCROLLER_BOTTOM_LOCK_THRESHOLD = 48;
+const CONVERSATION_SYNC_DEBOUNCE_MS = 450;
 
 let overlayRoot: Root | null = null;
 let composerOverlayRoot: Root | null = null;
@@ -23,6 +27,8 @@ let visibilityCheckSequence = 0;
 let storageChangeListenerInstalled = false;
 let composerOverlaySyncFrame: number | null = null;
 let composerOverlayMode: ComposerMode = "encrypted";
+let conversationSyncTimeout: number | null = null;
+let conversationSyncInFlight = false;
 
 interface OverlayState {
   status: string;
@@ -131,12 +137,15 @@ function GhostscriptComposerOverlay({ onLayoutChange }: { onLayoutChange: () => 
   const [encryptedDraft, setEncryptedDraft] = useState("");
   const [normalDraft, setNormalDraft] = useState("");
   const [coverTopic, setCoverTopic] = useState("Not set yet");
+  const [sendStatus, setSendStatus] = useState("Ready to encrypt.");
+  const [sendError, setSendError] = useState<string | null>(null);
+  const [sendLocked, setSendLocked] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   useEffect(() => {
     let cancelled = false;
 
-    const syncCoverTopic = async () => {
+    const syncState = async () => {
       try {
         const state = await readExtensionState();
         if (cancelled) {
@@ -144,16 +153,57 @@ function GhostscriptComposerOverlay({ onLayoutChange }: { onLayoutChange: () => 
         }
 
         setCoverTopic(state.activePairing?.defaultCoverTopic ?? state.contacts[0]?.defaultCoverTopic ?? "Not set yet");
+
+        const threadId = getCurrentDiscordThreadId();
+        if (!threadId) {
+          setSendStatus("Open a Discord thread to start.");
+          setSendLocked(true);
+          return;
+        }
+
+        const conversation = await readConversationState(threadId);
+        if (cancelled) {
+          return;
+        }
+
+        if (!conversation.pendingSend) {
+          setSendStatus("Ready to encrypt.");
+          setSendError(null);
+          setSendLocked(false);
+          return;
+        }
+
+        setSendLocked(conversation.pendingSend.status !== "failed");
+        switch (conversation.pendingSend.status) {
+          case "encoding":
+            setSendStatus("Generating natural cover text...");
+            setSendError(null);
+            break;
+          case "awaiting-discord-confirm":
+            setSendStatus("Waiting for Discord to confirm the previous Ghostscript message...");
+            setSendError(null);
+            break;
+          case "failed":
+            setSendStatus("Ghostscript send failed.");
+            setSendError(conversation.pendingSend.error);
+            break;
+        }
       } catch {
         if (!cancelled) {
           setCoverTopic("Not set yet");
+          setSendStatus("Ghostscript is unavailable right now.");
         }
       }
     };
 
-    void syncCoverTopic();
+    void syncState();
+    const intervalId = window.setInterval(() => {
+      void syncState();
+    }, 800);
+
     return () => {
       cancelled = true;
+      window.clearInterval(intervalId);
     };
   }, []);
 
@@ -186,7 +236,48 @@ function GhostscriptComposerOverlay({ onLayoutChange }: { onLayoutChange: () => 
     textarea.style.height = "0px";
     textarea.style.height = `${textarea.scrollHeight}px`;
     onLayoutChange();
-  }, [activeDraft, coverTopic, isEncryptedMode, mode, onLayoutChange]);
+  }, [activeDraft, coverTopic, isEncryptedMode, mode, onLayoutChange, sendError, sendStatus]);
+
+  async function handleEncryptedSend() {
+    const plaintext = encryptedDraft.trim();
+    if (!plaintext) {
+      return;
+    }
+
+    setSendError(null);
+    setSendStatus("Generating natural cover text...");
+    setSendLocked(true);
+
+    try {
+      const state = await readExtensionState();
+      const activePairing = state.activePairing;
+      const localUsername = state.profile?.discordUsername ?? "";
+      const partnerUsername = activePairing?.counterpart?.displayName ?? "";
+
+      if (!activePairing || activePairing.status !== "paired") {
+        throw new Error("Ghostscript is no longer paired in this Discord session.");
+      }
+
+      if (!localUsername || !partnerUsername) {
+        throw new Error("Both Discord usernames must be available before Ghostscript can send.");
+      }
+
+      await sendEncryptedGhostscriptMessage({
+        plaintext,
+        pairing: activePairing,
+        localUsername,
+        partnerUsername,
+      });
+
+      setEncryptedDraft("");
+      setSendStatus("Waiting for Discord to confirm the previous Ghostscript message...");
+      scheduleConversationSync();
+    } catch (error) {
+      setSendError(error instanceof Error ? error.message : "Ghostscript send failed.");
+      setSendStatus("Ghostscript send failed.");
+      setSendLocked(false);
+    }
+  }
 
   return (
     <>
@@ -231,7 +322,28 @@ function GhostscriptComposerOverlay({ onLayoutChange }: { onLayoutChange: () => 
               }}
               placeholder="Type the message you want Ghostscript to encrypt."
               spellCheck={false}
+              onKeyDown={(event) => {
+                if ((event.metaKey || event.ctrlKey) && event.key === "Enter" && !sendLocked) {
+                  event.preventDefault();
+                  void handleEncryptedSend();
+                }
+              }}
             />
+            <div className="ghostscript-composer-actions">
+              <p className="ghostscript-composer-status" role="status">
+                {sendError ?? sendStatus}
+              </p>
+              <button
+                type="button"
+                className="ghostscript-composer-send"
+                disabled={sendLocked || !encryptedDraft.trim()}
+                onClick={() => {
+                  void handleEncryptedSend();
+                }}
+              >
+                Send encrypted
+              </button>
+            </div>
           </>
         ) : null}
       </section>
@@ -292,11 +404,6 @@ function getDiscordComposerTarget() {
   }
 
   return textbox;
-}
-
-function getDiscordNativeTextbox() {
-  const textbox = document.querySelector('[role="textbox"][contenteditable="true"]');
-  return textbox instanceof HTMLElement ? textbox : null;
 }
 
 function findScrollableAncestor(element: HTMLElement | null) {
@@ -449,10 +556,55 @@ function scheduleComposerOverlaySync() {
   });
 }
 
+function scheduleConversationSync() {
+  if (conversationSyncTimeout !== null) {
+    window.clearTimeout(conversationSyncTimeout);
+  }
+
+  conversationSyncTimeout = window.setTimeout(() => {
+    conversationSyncTimeout = null;
+    void syncConversationActivity();
+  }, CONVERSATION_SYNC_DEBOUNCE_MS);
+}
+
+async function syncConversationActivity() {
+  if (conversationSyncInFlight) {
+    return;
+  }
+
+  conversationSyncInFlight = true;
+
+  try {
+    const state = await readExtensionState();
+    const activePairing = state.activePairing;
+    const localUsername = state.profile?.discordUsername ?? "";
+    const partnerUsername = activePairing?.counterpart?.displayName ?? "";
+
+    if (!activePairing || activePairing.status !== "paired" || !localUsername || !partnerUsername) {
+      return;
+    }
+
+    await syncGhostscriptConversation({
+      pairing: activePairing,
+      localUsername,
+      partnerUsername,
+    });
+  } catch {
+    // Conversation sync is best-effort so the overlay can stay responsive on Discord DOM churn.
+  } finally {
+    conversationSyncInFlight = false;
+  }
+}
+
 function unmountComposerOverlay() {
   if (composerOverlaySyncFrame !== null) {
     window.cancelAnimationFrame(composerOverlaySyncFrame);
     composerOverlaySyncFrame = null;
+  }
+
+  if (conversationSyncTimeout !== null) {
+    window.clearTimeout(conversationSyncTimeout);
+    conversationSyncTimeout = null;
   }
 
   composerOverlayRoot?.unmount();
@@ -507,6 +659,7 @@ async function syncOverlayVisibility() {
     mountOverlay();
     mountComposerOverlay();
     scheduleComposerOverlaySync();
+    scheduleConversationSync();
     return;
   }
 
@@ -566,6 +719,7 @@ function installRouteObservers() {
     handleRouteChange();
     if (overlayRoot) {
       scheduleComposerOverlaySync();
+      scheduleConversationSync();
     }
   });
 
@@ -597,6 +751,7 @@ function installStorageObserver() {
       }
 
       void syncOverlayVisibility();
+      scheduleConversationSync();
     });
   } catch {
     storageChangeListenerInstalled = false;

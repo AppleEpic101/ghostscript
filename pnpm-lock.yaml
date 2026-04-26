@@ -42,6 +42,28 @@ importers:
         specifier: ^7.1.7
         version: 7.3.2(@types/node@24.12.2)(tsx@4.21.0)
 
+  apps/llm-bridge:
+    dependencies:
+      '@ghostscript/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
+      dotenv:
+        specifier: ^17.2.3
+        version: 17.4.2
+      openai:
+        specifier: ^6.4.0
+        version: 6.34.0(ws@8.20.0)
+    devDependencies:
+      '@types/node':
+        specifier: ^24.7.2
+        version: 24.12.2
+      tsx:
+        specifier: ^4.20.6
+        version: 4.21.0
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+
   apps/pairing-api:
     dependencies:
       '@ghostscript/shared':
@@ -624,6 +646,18 @@ packages:
 
   node-releases@2.0.38:
     resolution: {integrity: sha512-3qT/88Y3FbH/Kx4szpQQ4HzUbVrHPKTLVpVocKiLfoYvw9XSGOX2FmD2d6DrXbVYyAQTF2HeF6My8jmzx7/CRw==}
+
+  openai@6.34.0:
+    resolution: {integrity: sha512-yEr2jdGf4tVFYG6ohmr3pF6VJuveP0EA/sS8TBx+4Eq5NT10alu5zg2dmxMXMgqpihRDQlFGpRt2XwsGj+Fyxw==}
+    hasBin: true
+    peerDependencies:
+      ws: ^8.18.0
+      zod: ^3.25 || ^4.0
+    peerDependenciesMeta:
+      ws:
+        optional: true
+      zod:
+        optional: true
 
   picocolors@1.1.1:
     resolution: {integrity: sha512-xceH2snhtb5M9liqDsmEw56le376mTZkEX/jEb/RxNFyegNul7eNslCXP9FDj/Lcu0X8KEyMceP2ntpaHrDEVA==}
@@ -1226,6 +1260,10 @@ snapshots:
   nanoid@3.3.11: {}
 
   node-releases@2.0.38: {}
+
+  openai@6.34.0(ws@8.20.0):
+    optionalDependencies:
+      ws: 8.20.0
 
   picocolors@1.1.1: {}
 

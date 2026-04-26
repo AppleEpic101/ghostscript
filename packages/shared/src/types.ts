@@ -25,6 +25,7 @@ export interface PairingParticipant {
   sessionId: string;
   role: ParticipantRole;
   displayName: string;
+  identityPublicKey: string | null;
   createdAt: string;
 }
 
@@ -63,6 +64,7 @@ export interface ExtensionState {
 export interface CreateInviteRequest {
   inviterName: string;
   coverTopic: string;
+  identityPublicKey: string;
 }
 
 export interface CreateInviteResponse {
@@ -73,6 +75,7 @@ export interface CreateInviteResponse {
 
 export interface JoinInviteRequest {
   joinerName: string;
+  identityPublicKey: string;
 }
 
 export interface JoinInviteResponse {
@@ -95,4 +98,38 @@ export interface ResetPairingRequest {
 
 export interface ResetPairingResponse {
   session: PairingSession;
+}
+
+export type PendingSendStatus = "idle" | "encoding" | "awaiting-discord-confirm" | "failed";
+
+export interface LLMEncodingConfig {
+  configId: string;
+  provider: string;
+  modelId: string;
+  tokenizerId: string;
+  temperature: number;
+  pMin: number;
+  bitsPerStep: number;
+  excludedTokenSet: string[];
+  fallbackStrategy: "reduce-bits";
+  tieBreakRule: "token-id-ascending";
+  payloadTerminationStrategy: "length-header";
+}
+
+export interface MessageEnvelope {
+  v: 1;
+  senderId: string;
+  msgId: number;
+  nonce: string;
+  ciphertext: string;
+  payloadBitLength: number;
+}
+
+export interface GhostscriptThreadMessage {
+  threadId: string;
+  discordMessageId: string;
+  authorUsername: string;
+  snowflakeTimestamp: string;
+  text: string;
+  direction: "incoming" | "outgoing" | "other";
 }

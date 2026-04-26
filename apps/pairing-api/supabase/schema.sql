@@ -25,9 +25,13 @@ create table if not exists public.pairing_participants (
   session_id uuid not null references public.pairing_sessions(id) on delete cascade,
   role text not null check (role in ('inviter', 'joiner')),
   display_name text not null check (length(btrim(display_name)) > 0),
+  identity_public_key text,
   created_at timestamptz not null default now(),
   unique (session_id, role)
 );
+
+alter table public.pairing_participants
+  add column if not exists identity_public_key text;
 
 do $$
 begin
@@ -62,6 +66,7 @@ alter table public.pairing_participants enable row level security;
 create or replace function public.create_pairing_invite(
   inviter_name_input text,
   cover_topic_input text,
+  identity_public_key_input text,
   expires_at_input timestamptz
 )
 returns table (invite_code char(4))
@@ -79,6 +84,10 @@ begin
 
   if length(btrim(cover_topic_input)) = 0 then
     raise exception 'coverTopic is required.';
+  end if;
+
+  if length(coalesce(btrim(identity_public_key_input), '')) = 0 then
+    raise exception 'identityPublicKey is required.';
   end if;
 
   for attempt in 1..20 loop
@@ -102,12 +111,14 @@ begin
       insert into public.pairing_participants (
         session_id,
         role,
-        display_name
+        display_name,
+        identity_public_key
       )
       values (
         next_session_id,
         'inviter',
-        btrim(inviter_name_input)
+        btrim(inviter_name_input),
+        btrim(identity_public_key_input)
       )
       returning id into next_inviter_id;
 
@@ -130,7 +141,8 @@ $$;
 
 create or replace function public.claim_pairing_invite(
   invite_code_input text,
-  joiner_name_input text
+  joiner_name_input text,
+  identity_public_key_input text
 )
 returns void
 language plpgsql
@@ -147,6 +159,10 @@ begin
 
   if length(btrim(joiner_name_input)) = 0 then
     raise exception 'joinerName is required.';
+  end if;
+
+  if length(coalesce(btrim(identity_public_key_input), '')) = 0 then
+    raise exception 'identityPublicKey is required.';
   end if;
 
   select *
@@ -179,12 +195,14 @@ begin
   insert into public.pairing_participants (
     session_id,
     role,
-    display_name
+    display_name,
+    identity_public_key
   )
   values (
     session_row.id,
     'joiner',
-    btrim(joiner_name_input)
+    btrim(joiner_name_input),
+    btrim(identity_public_key_input)
   )
   returning id into next_joiner_id;
 
