@@ -1,10 +1,8 @@
 :root {
-  color-scheme: light;
-  font-family: "Avenir Next", "Segoe UI", sans-serif;
-  background:
-    radial-gradient(circle at top left, rgba(237, 180, 88, 0.32), transparent 38%),
-    linear-gradient(180deg, #f7efe0 0%, #efe4d0 100%);
-  color: #1f2a30;
+  color-scheme: dark;
+  font-family: "gg sans", "Noto Sans", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  background: #313338;
+  color: #dbdee1;
 }
 
 * {
@@ -38,18 +36,19 @@ textarea {
   letter-spacing: 0.14em;
   font-size: 11px;
   font-weight: 700;
-  color: #7f6441;
+  color: #949ba4;
 }
 
 .popup-shell h1 {
   margin: 0;
   font-size: 26px;
   line-height: 1.05;
+  color: #ffffff;
 }
 
 .popup-copy {
   margin: 10px 0 18px;
-  color: #5d4e40;
+  color: #b5bac1;
   font-size: 14px;
   line-height: 1.45;
 }
@@ -59,11 +58,10 @@ textarea {
 }
 
 .popup-card {
-  background: rgba(255, 251, 245, 0.82);
-  border: 1px solid rgba(109, 81, 38, 0.12);
-  border-radius: 18px;
+  background: #2b2d31;
+  border-radius: 8px;
   padding: 16px;
-  box-shadow: 0 20px 40px rgba(92, 69, 34, 0.08);
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
 }
 
 .popup-card--lobby {
@@ -86,23 +84,23 @@ textarea {
   margin-bottom: 6px;
   font-size: 12px;
   font-weight: 700;
-  color: #614d35;
+  color: #b5bac1;
 }
 
 .popup-input,
 .popup-textarea {
   width: 100%;
-  border: 1px solid rgba(97, 77, 53, 0.18);
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.86);
+  border: none;
+  border-radius: 4px;
+  background: #1e1f22;
   padding: 12px 13px;
-  color: #1f2a30;
+  color: #dbdee1;
 }
 
 .popup-input:focus,
 .popup-textarea:focus {
-  outline: 2px solid rgba(207, 141, 40, 0.35);
-  outline-offset: 2px;
+  outline: none;
+  box-shadow: 0 0 0 2px #5865f2;
 }
 
 .popup-textarea {
@@ -132,72 +130,79 @@ textarea {
 .popup-danger {
   appearance: none;
   border: 0;
-  border-radius: 12px;
+  border-radius: 3px;
   min-height: 44px;
   padding: 10px 14px;
   cursor: pointer;
-  transition: transform 120ms ease, opacity 120ms ease;
+  transition: background-color 120ms ease, opacity 120ms ease;
 }
 
-.popup-button:hover,
-.popup-secondary:hover,
-.popup-linklike:hover,
+.popup-button:hover {
+  background-color: #4752c4;
+}
+
+.popup-secondary:hover {
+  background-color: #6d6f78;
+}
+
 .popup-danger:hover {
-  transform: translateY(-1px);
+  background-color: #a12d2f;
 }
 
 .popup-button:disabled,
 .popup-secondary:disabled,
 .popup-linklike:disabled,
 .popup-danger:disabled {
-  opacity: 0.6;
-  cursor: wait;
+  opacity: 0.5;
+  cursor: not-allowed;
   transform: none;
 }
 
 .popup-button {
-  background: linear-gradient(135deg, #c97f26, #9f5e15);
-  color: #fff9f0;
-  font-weight: 700;
+  background: #5865f2;
+  color: #ffffff;
+  font-weight: 600;
 }
 
 .popup-secondary {
-  background: #e8ddcb;
-  color: #3f3021;
-  font-weight: 700;
+  background: #4e5058;
+  color: #ffffff;
+  font-weight: 600;
 }
 
 .popup-danger {
-  background: #5f241f;
-  color: #fff1ed;
-  font-weight: 700;
+  background: #da373c;
+  color: #ffffff;
+  font-weight: 600;
 }
 
 .popup-feedback {
   margin: 0;
-  border-radius: 14px;
+  border-radius: 4px;
   padding: 12px 14px;
   font-size: 13px;
   line-height: 1.45;
 }
 
 .popup-feedback--success {
-  background: rgba(58, 118, 76, 0.12);
-  color: #215230;
+  background: rgba(35, 165, 89, 0.1);
+  color: #23a559;
+  border: 1px solid rgba(35, 165, 89, 0.2);
 }
 
 .popup-feedback--error {
-  background: rgba(151, 50, 32, 0.12);
-  color: #7c281c;
+  background: rgba(242, 63, 67, 0.1);
+  color: #f23f43;
+  border: 1px solid rgba(242, 63, 67, 0.2);
 }
 
 .popup-result-code {
   display: inline-flex;
   margin-top: 10px;
-  border-radius: 14px;
+  border-radius: 4px;
   padding: 12px 14px;
-  background: #1f2a30;
-  color: #fff8ef;
+  background: #1e1f22;
+  color: #ffffff;
   font-size: 28px;
   font-weight: 800;
   letter-spacing: 0.14em;
@@ -209,13 +214,14 @@ textarea {
   align-items: flex-start;
   flex-direction: column;
   gap: 4px;
-  border: 1px solid rgba(201, 127, 38, 0.24);
-  border-radius: 14px;
+  border: 1px solid #5865f2;
+  border-radius: 4px;
   padding: 12px 14px;
-  background: linear-gradient(135deg, rgba(255, 247, 234, 0.96), rgba(241, 224, 193, 0.94));
-  color: #533611;
+  background: #1e1f22;
+  color: #5865f2;
   cursor: pointer;
   text-align: left;
+  transition: background-color 120ms ease;
 }
 
 .popup-lobby-code span {
@@ -225,19 +231,19 @@ textarea {
 }
 
 .popup-lobby-code small {
-  color: #7c5d34;
+  color: #b5bac1;
   font-size: 11px;
   font-weight: 700;
   letter-spacing: 0.04em;
 }
 
 .popup-lobby-code:hover {
-  transform: translateY(-1px);
+  background-color: rgba(88, 101, 242, 0.05);
 }
 
 .popup-lobby-code:focus {
-  outline: 2px solid rgba(207, 141, 40, 0.35);
-  outline-offset: 2px;
+  outline: none;
+  box-shadow: 0 0 0 2px #5865f2;
 }
 
 .popup-lobby-list {
@@ -246,22 +252,23 @@ textarea {
 }
 
 .popup-lobby-person {
-  border-radius: 12px;
+  border-radius: 4px;
   padding: 12px 13px;
-  background: rgba(255, 255, 255, 0.86);
-  border: 1px solid rgba(97, 77, 53, 0.14);
-  color: #1f2a30;
-  font-weight: 700;
+  background: #1e1f22;
+  border: 1px solid #383a40;
+  color: #dbdee1;
+  font-weight: 600;
 }
 
 .popup-lobby-person--waiting {
-  color: #6f5a40;
-  font-weight: 600;
+  color: #949ba4;
+  font-weight: 500;
 }
 
 .popup-footnote {
   margin: 12px 0 0;
-  color: #6f5a40;
+  color: #949ba4;
   font-size: 12px;
   line-height: 1.4;
 }
+
