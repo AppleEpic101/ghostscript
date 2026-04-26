@@ -23,6 +23,7 @@ export interface PendingSendState {
   threadId: string;
   sessionId: string;
   status: Exclude<PendingSendStatus, "idle">;
+  plaintext: string;
   expectedCoverText: string;
   encodedMessage: EncodedGhostscriptMessage | null;
   startedAt: number;
@@ -262,6 +263,7 @@ function normalizeConversationState(conversation: GhostscriptConversationState):
     pendingSend: conversation.pendingSend
       ? {
           ...conversation.pendingSend,
+          plaintext: conversation.pendingSend.plaintext ?? "",
           encodedMessage: conversation.pendingSend.encodedMessage ?? null,
         }
       : null,

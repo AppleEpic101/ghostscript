@@ -95,6 +95,7 @@ export async function sendEncryptedGhostscriptMessage(params: {
     threadId,
     sessionId: params.pairing.session.id,
     status: "encoding",
+    plaintext: params.plaintext,
     expectedCoverText: "",
     encodedMessage: null,
     startedAt: Date.now(),
@@ -146,10 +147,11 @@ export async function sendEncryptedGhostscriptMessage(params: {
       );
     }
 
-      await setPendingSend(threadId, {
+    await setPendingSend(threadId, {
       threadId,
       sessionId: params.pairing.session.id,
       status: "awaiting-discord-confirm",
+      plaintext: params.plaintext,
       expectedCoverText: submittedText,
       encodedMessage,
       startedAt: Date.now(),
@@ -179,6 +181,7 @@ export async function sendEncryptedGhostscriptMessage(params: {
       threadId,
       sessionId: params.pairing.session.id,
       status: "failed",
+      plaintext: params.plaintext,
       expectedCoverText: attemptedSubmittedText,
       encodedMessage: attemptedEncodedMessage,
       startedAt: Date.now(),
@@ -255,6 +258,22 @@ async function reconcilePendingSend(messages: GhostscriptThreadMessage[]) {
     if (pendingSend.encodedMessage) {
       await storeConfirmedEncodedMessage(threadId, pendingSend.encodedMessage);
     }
+    await storeDecodedMessage(threadId, matchingOutgoingMessage.discordMessageId, {
+      status: "decoded",
+      plaintext: pendingSend.plaintext,
+      visibleText: pendingSend.encodedMessage?.visibleText ?? matchingOutgoingMessage.text,
+      encodedMessage: pendingSend.encodedMessage,
+      processedAt: new Date().toISOString(),
+      activeView: "decrypted",
+    });
+    renderDecodedMessageOverlay({
+      threadId,
+      discordMessageId: matchingOutgoingMessage.discordMessageId,
+      status: "decoded",
+      plaintext: pendingSend.plaintext,
+      visibleText: pendingSend.encodedMessage?.visibleText ?? matchingOutgoingMessage.text,
+      activeView: "decrypted",
+    });
     await setPendingSend(threadId, {
       ...pendingSend,
       status: "confirmed",
@@ -414,12 +433,14 @@ async function decodeIncomingMessages(
 
 async function restoreDecodedMessageOverlays(threadId: string, messages: GhostscriptThreadMessage[]) {
   const conversation = await readConversationState(threadId);
-  const eligibleIncomingMessageIds = new Set(
-    messages.filter((message) => message.direction === "incoming").map((message) => message.discordMessageId),
+  const eligibleMessageIds = new Set(
+    messages
+      .filter((message) => message.direction === "incoming" || message.direction === "outgoing")
+      .map((message) => message.discordMessageId),
   );
 
   for (const [discordMessageId, decodedMessage] of Object.entries(conversation.decodedMessages)) {
-    if (!eligibleIncomingMessageIds.has(discordMessageId)) {
+    if (!eligibleMessageIds.has(discordMessageId)) {
       continue;
     }
 
