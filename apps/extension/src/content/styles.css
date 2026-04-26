@@ -46,3 +46,120 @@
   color: #949ba4;
 }
 
+.ghostscript-composer-host {
+  position: fixed;
+  z-index: 2147483646;
+  display: flex;
+  align-items: flex-start;
+  box-sizing: border-box;
+}
+
+.ghostscript-composer-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  min-height: 100%;
+  padding: 10px;
+  border-radius: 26px;
+  box-sizing: border-box;
+  backdrop-filter: blur(12px);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.22);
+}
+
+.ghostscript-composer-shell--encrypted {
+  background:
+    linear-gradient(160deg, rgba(88, 101, 242, 0.94), rgba(121, 132, 255, 0.88)),
+    rgba(88, 101, 242, 0.92);
+  border: 1px solid rgba(88, 101, 242, 0.92);
+}
+
+.ghostscript-composer-shell--normal {
+  width: fit-content;
+  min-height: auto;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  backdrop-filter: none;
+}
+
+.ghostscript-composer-tabs {
+  display: inline-flex;
+  gap: 8px;
+  align-self: flex-start;
+  padding: 4px;
+  border-radius: 999px;
+  background: rgba(17, 24, 39, 0.24);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.ghostscript-composer-tab {
+  appearance: none;
+  border: 0;
+  border-radius: 999px;
+  padding: 8px 14px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.78);
+  font-family: "gg sans", "Noto Sans", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    background-color 120ms ease,
+    color 120ms ease,
+    transform 120ms ease;
+}
+
+.ghostscript-composer-tab:hover {
+  color: #ffffff;
+}
+
+.ghostscript-composer-tab--active {
+  background: rgba(255, 255, 255, 0.18);
+  color: #ffffff;
+  transform: translateY(-1px);
+}
+
+.ghostscript-composer-label {
+  color: rgba(255, 255, 255, 0.86);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.ghostscript-composer-textarea {
+  min-height: 84px;
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 18px;
+  background: rgba(15, 23, 42, 0.2);
+  color: #ffffff;
+  font-family: "gg sans", "Noto Sans", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  font-size: 14px;
+  line-height: 1.45;
+  resize: none;
+  overflow: hidden;
+  box-sizing: border-box;
+  outline: none;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.ghostscript-composer-textarea::placeholder {
+  color: rgba(255, 255, 255, 0.56);
+}
+
+.ghostscript-composer-textarea:focus {
+  border-color: rgba(255, 255, 255, 0.34);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    0 0 0 2px rgba(255, 255, 255, 0.12);
+}
+
+.ghostscript-conversation-spacer {
+  width: 100%;
+  flex: 0 0 auto;
+  pointer-events: none;
+}
