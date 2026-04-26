@@ -4,9 +4,13 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
 const rootDir = dirname(fileURLToPath(import.meta.url));
+const browserDefines = {
+  "process.env.NODE_ENV": JSON.stringify("production"),
+};
 
 export default defineConfig({
   base: "./",
+  define: browserDefines,
   plugins: [react()],
   build: {
     outDir: "dist",

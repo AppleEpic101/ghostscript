@@ -7,7 +7,7 @@ import overlayStyles from "./styles.css?inline";
 
 const SESSION_SYNC_POLL_MS = 5000;
 const OVERLAY_HOST_ID = "ghostscript-status-root";
-const DISCORD_DM_ROUTE_PATTERN = /^\/channels\/@me\/[^/]+$/;
+const DISCORD_ME_ROUTE_PREFIX = "/channels/@me";
 
 let overlayRoot: Root | null = null;
 let routeObserverAbortController: AbortController | null = null;
@@ -28,6 +28,14 @@ const DEFAULT_OVERLAY_STATE: OverlayState = {
   coverTopic: "Not set yet",
   detail: "This connection is ready. Ghostscript no longer waits for a manual verification step.",
 };
+
+function canUseChromeStorageObserver() {
+  try {
+    return typeof chrome !== "undefined" && !!chrome.runtime?.id && !!chrome.storage?.onChanged;
+  } catch {
+    return false;
+  }
+}
 
 function GhostscriptStatusOverlay({ onPairingLost }: { onPairingLost: () => void }) {
   const [overlayState, setOverlayState] = useState<OverlayState>(DEFAULT_OVERLAY_STATE);
@@ -142,12 +150,16 @@ function getCurrentRoute() {
   return `${window.location.pathname}${window.location.search}${window.location.hash}`;
 }
 
-function isDiscordDmThreadRoute() {
-  return window.location.hostname === "discord.com" && DISCORD_DM_ROUTE_PATTERN.test(window.location.pathname);
+function isDiscordMeRoute() {
+  return (
+    window.location.hostname === "discord.com" &&
+    (window.location.pathname === DISCORD_ME_ROUTE_PREFIX ||
+      window.location.pathname.startsWith(`${DISCORD_ME_ROUTE_PREFIX}/`))
+  );
 }
 
 async function shouldShowOverlay() {
-  if (!isDiscordDmThreadRoute()) {
+  if (!isDiscordMeRoute()) {
     return false;
   }
 
@@ -157,7 +169,13 @@ async function shouldShowOverlay() {
 
 async function syncOverlayVisibility() {
   const sequence = ++visibilityCheckSequence;
-  const showOverlay = await shouldShowOverlay();
+  let showOverlay = false;
+
+  try {
+    showOverlay = await shouldShowOverlay();
+  } catch {
+    showOverlay = false;
+  }
 
   if (sequence !== visibilityCheckSequence) {
     return;
@@ -232,18 +250,23 @@ function installRouteObservers() {
 }
 
 function installStorageObserver() {
-  if (storageChangeListenerInstalled) {
+  if (storageChangeListenerInstalled || !canUseChromeStorageObserver()) {
     return;
   }
 
   storageChangeListenerInstalled = true;
-  chrome.storage.onChanged.addListener((_changes, areaName) => {
-    if (areaName !== "local") {
-      return;
-    }
 
-    void syncOverlayVisibility();
-  });
+  try {
+    chrome.storage.onChanged.addListener((_changes, areaName) => {
+      if (areaName !== "local") {
+        return;
+      }
+
+      void syncOverlayVisibility();
+    });
+  } catch {
+    storageChangeListenerInstalled = false;
+  }
 }
 
 if (window.location.hostname === "discord.com") {

@@ -6,11 +6,15 @@ import react from "@vitejs/plugin-react";
 const isWatchMode = process.argv.includes("--watch");
 const rootDir = dirname(fileURLToPath(import.meta.url));
 const extensionRoot = resolve(rootDir, "..");
+const browserDefines = {
+  "process.env.NODE_ENV": JSON.stringify("production"),
+};
 
 const sharedConfig = {
   configFile: false,
   root: extensionRoot,
   base: "./",
+  define: browserDefines,
   plugins: [react()],
 };
 
