@@ -81,3 +81,44 @@ test("filterEligibleTwoPartyMessages keeps only post-link partner and local mess
     ],
   );
 });
+
+test("filterEligibleTwoPartyMessages classifies exact local and partner usernames after pairing", () => {
+  const messages = filterEligibleTwoPartyMessages(
+    [
+      {
+        threadId: "thread-1",
+        discordMessageId: "1498000000000000001",
+        authorUsername: "bobby",
+        snowflakeTimestamp: "2026-04-26T08:14:10.000Z",
+        text: "hello",
+      },
+      {
+        threadId: "thread-1",
+        discordMessageId: "1498000000000000002",
+        authorUsername: "appleepic",
+        snowflakeTimestamp: "2026-04-26T08:14:20.000Z",
+        text: "reply",
+      },
+    ],
+    "bobby",
+    "appleepic",
+    "2026-04-26T08:13:57.601Z",
+  );
+
+  assert.deepEqual(
+    messages.map((message) => ({
+      discordMessageId: message.discordMessageId,
+      direction: message.direction,
+    })),
+    [
+      {
+        discordMessageId: "1498000000000000001",
+        direction: "outgoing",
+      },
+      {
+        discordMessageId: "1498000000000000002",
+        direction: "incoming",
+      },
+    ],
+  );
+});

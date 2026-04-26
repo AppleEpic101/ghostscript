@@ -453,7 +453,7 @@ export async function renderDebugOverlayOnAllMessages(messages: GhostscriptThrea
 function findMessageContainers() {
   return MESSAGE_CONTAINER_SELECTORS.flatMap((selector) =>
     Array.from(document.querySelectorAll<HTMLElement>(selector)),
-  );
+  ).filter(isLikelyMessageContainer);
 }
 
 function findMessageElementById(discordMessageId: string) {
@@ -476,11 +476,39 @@ function extractMessageId(element: HTMLElement) {
   const candidates = [
     element.id,
     element.getAttribute("data-list-item-id"),
-    element.querySelector<HTMLElement>("[id]")?.id ?? "",
+    element.querySelector<HTMLElement>('[id^="message-content-"]')?.id ?? "",
+    element.querySelector<HTMLElement>('[id^="message-accessories-"]')?.id ?? "",
+    element.querySelector<HTMLElement>('[id^="message-username-"]')?.id ?? "",
   ];
 
   for (const candidate of candidates) {
-    const match = candidate?.match(/(\d{17,20})/);
+    const match = candidate?.match(
+      /(?:chat-messages-|chat-messages_|message-|message-content-|message-accessories-|message-username-)(\d{17,20})/,
+    );
+    if (match?.[1]) {
+      return match[1];
+    }
+  }
+
+  return null;
+}
+
+function isLikelyMessageContainer(element: HTMLElement) {
+  const ownMessageId = extractMessageIdFromOwnAttributes(element);
+  const hasContent = findMessageContentElement(element) !== null;
+  const hasAuthor = !!extractAuthorUsername(element);
+
+  return ownMessageId !== null && (hasContent || hasAuthor);
+}
+
+function extractMessageIdFromOwnAttributes(element: HTMLElement) {
+  const candidates = [
+    element.id,
+    element.getAttribute("data-list-item-id"),
+  ];
+
+  for (const candidate of candidates) {
+    const match = candidate?.match(/(?:chat-messages-|chat-messages_|message-)(\d{17,20})/);
     if (match?.[1]) {
       return match[1];
     }
