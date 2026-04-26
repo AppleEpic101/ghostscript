@@ -49,8 +49,11 @@ function resolveCandidateDevices(): SupportedDevice[] {
 function getPlatformPreferredDevices(): SupportedDevice[] {
   switch (process.platform) {
     case "darwin":
-      // Transformers.js/ONNX Runtime Node uses CoreML on macOS rather than PyTorch's MPS backend.
-      return ["coreml", "webgpu", "cpu"];
+      // CoreML loads on macOS, but cache-enabled GPT-2 inference fails at runtime when the
+      // initial past_key_values tensors have zero sequence length. Prefer CPU so encrypted
+      // sends use the transport reliably by default; callers can still explicitly override
+      // the device if they want to experiment with another backend.
+      return ["cpu", "webgpu", "coreml"];
     case "win32":
       return ["dml", "webgpu", "cpu"];
     case "linux":
