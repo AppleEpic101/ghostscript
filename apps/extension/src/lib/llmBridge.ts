@@ -4,8 +4,9 @@ const DEFAULT_GHOSTSCRIPT_API_BASE_URL = "http://localhost:8787";
 const DEFAULT_ENCODING_CONFIG: LLMEncodingConfig = {
   configId: "ghostscript-default-v1",
   provider: "ghostscript-bridge",
-  modelId: "ghostscript-pinned-model",
-  tokenizerId: "ghostscript-pinned-tokenizer",
+  modelId: "ghostscript-rank-lm-v1",
+  tokenizerId: "ghostscript-word-tokenizer-v1",
+  transportBackend: "rank-local-v1",
   temperature: 1,
   pMin: 0.001,
   bitsPerStep: 3,
@@ -13,6 +14,8 @@ const DEFAULT_ENCODING_CONFIG: LLMEncodingConfig = {
   fallbackStrategy: "reduce-bits",
   tieBreakRule: "token-id-ascending",
   payloadTerminationStrategy: "length-header",
+  contextTruncationStrategy: "tail",
+  maxContextTokens: 512,
 };
 
 interface EncodeRequest {

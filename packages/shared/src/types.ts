@@ -25,7 +25,9 @@ export interface PairingParticipant {
   sessionId: string;
   role: ParticipantRole;
   username: string;
-  identityPublicKey: string | null;
+  transportPublicKey: string | null;
+  signingPublicKey: string | null;
+  identityFingerprint: string | null;
   createdAt: string;
 }
 
@@ -61,10 +63,16 @@ export interface ExtensionState {
   drafts: PopupDraftState | null;
 }
 
+export interface PublicIdentity {
+  transportPublicKey: string;
+  signingPublicKey: string;
+  identityFingerprint: string;
+}
+
 export interface CreateInviteRequest {
   inviterName: string;
   coverTopic: string;
-  identityPublicKey: string;
+  identity: PublicIdentity;
 }
 
 export interface CreateInviteResponse {
@@ -75,7 +83,7 @@ export interface CreateInviteResponse {
 
 export interface JoinInviteRequest {
   joinerName: string;
-  identityPublicKey: string;
+  identity: PublicIdentity;
 }
 
 export interface JoinInviteResponse {
@@ -107,6 +115,7 @@ export interface LLMEncodingConfig {
   provider: string;
   modelId: string;
   tokenizerId: string;
+  transportBackend: string;
   temperature: number;
   pMin: number;
   bitsPerStep: number;
@@ -114,15 +123,15 @@ export interface LLMEncodingConfig {
   fallbackStrategy: "reduce-bits";
   tieBreakRule: "token-id-ascending";
   payloadTerminationStrategy: "length-header";
+  contextTruncationStrategy: "tail";
+  maxContextTokens: number;
 }
 
 export interface MessageEnvelope {
   v: 1;
   senderId: string;
   msgId: number;
-  nonce: string;
   ciphertext: string;
-  payloadBitLength: number;
 }
 
 export interface GhostscriptThreadMessage {

@@ -6,6 +6,7 @@ import type {
   JoinInviteResponse,
   PairingParticipant,
   PairingSession,
+  PublicIdentity,
   ResetPairingRequest,
   ResetPairingResponse,
 } from "@ghostscript/shared";
@@ -56,13 +57,13 @@ export class PairingService {
   async createInvite(request: CreateInviteRequest): Promise<CreateInviteResponse> {
     validateDisplayName(request.inviterName, "inviterName");
     validateCoverTopic(request.coverTopic);
-    validateIdentityPublicKey(request.identityPublicKey);
+    const publicIdentity = normalizePublicIdentity(request);
 
     const expiresAt = new Date(Date.now() + INVITE_TTL_MS).toISOString();
     const { data, error } = await supabase.rpc("create_pairing_invite", {
       inviter_name_input: request.inviterName.trim(),
       cover_topic_input: request.coverTopic.trim(),
-      identity_public_key_input: request.identityPublicKey.trim(),
+      identity_public_key_input: serializePublicIdentity(publicIdentity),
       expires_at_input: expiresAt,
     });
 
@@ -87,12 +88,12 @@ export class PairingService {
   async joinInvite(inviteCode: string, request: JoinInviteRequest): Promise<JoinInviteResponse> {
     validateInviteCode(inviteCode);
     validateDisplayName(request.joinerName, "joinerName");
-    validateIdentityPublicKey(request.identityPublicKey);
+    const publicIdentity = normalizePublicIdentity(request);
 
     const { error } = await supabase.rpc("claim_pairing_invite", {
       invite_code_input: inviteCode.trim(),
       joiner_name_input: request.joinerName.trim(),
-      identity_public_key_input: request.identityPublicKey.trim(),
+      identity_public_key_input: serializePublicIdentity(publicIdentity),
     });
 
     if (error) {
@@ -257,12 +258,16 @@ function mapSession(record: PairingSessionRecord): PairingSession {
 }
 
 function mapParticipant(record: ParticipantRecord): PairingParticipant {
+  const publicIdentity = parseStoredPublicIdentity(record.identity_public_key);
+
   return {
     id: record.id,
     sessionId: record.session_id,
     role: record.role,
     username: record.display_name,
-    identityPublicKey: record.identity_public_key,
+    transportPublicKey: publicIdentity.transportPublicKey,
+    signingPublicKey: publicIdentity.signingPublicKey,
+    identityFingerprint: publicIdentity.identityFingerprint,
     createdAt: record.created_at,
   };
 }
@@ -315,8 +320,75 @@ function validateCoverTopic(value: string) {
   }
 }
 
-function validateIdentityPublicKey(value: string) {
-  if (!value.trim()) {
-    throw new ApiError(400, "identityPublicKey is required.");
+function validatePublicIdentity(identity: PublicIdentity | null | undefined) {
+  if (!identity) {
+    throw new ApiError(400, "identity is required.");
+  }
+
+  if (!identity.transportPublicKey.trim()) {
+    throw new ApiError(400, "identity.transportPublicKey is required.");
+  }
+
+  if (!identity.signingPublicKey.trim()) {
+    throw new ApiError(400, "identity.signingPublicKey is required.");
+  }
+
+  if (!identity.identityFingerprint.trim()) {
+    throw new ApiError(400, "identity.identityFingerprint is required.");
+  }
+}
+
+function normalizePublicIdentity(
+  request: { identity?: PublicIdentity | null; identityPublicKey?: string | null } | null | undefined,
+) {
+  const explicitIdentity = request?.identity;
+  if (explicitIdentity) {
+    validatePublicIdentity(explicitIdentity);
+    return explicitIdentity;
+  }
+
+  const legacyIdentityPublicKey = request?.identityPublicKey?.trim();
+  if (!legacyIdentityPublicKey) {
+    throw new ApiError(400, "identity is required.");
+  }
+
+  return {
+    transportPublicKey: legacyIdentityPublicKey,
+    signingPublicKey: legacyIdentityPublicKey,
+    identityFingerprint: `legacy:${legacyIdentityPublicKey.slice(0, 24)}`,
+  } satisfies PublicIdentity;
+}
+
+function serializePublicIdentity(identity: PublicIdentity) {
+  return JSON.stringify({
+    v: 1,
+    transportPublicKey: identity.transportPublicKey.trim(),
+    signingPublicKey: identity.signingPublicKey.trim(),
+    identityFingerprint: identity.identityFingerprint.trim(),
+  });
+}
+
+function parseStoredPublicIdentity(value: string | null) {
+  if (!value?.trim()) {
+    return {
+      transportPublicKey: null,
+      signingPublicKey: null,
+      identityFingerprint: null,
+    };
+  }
+
+  try {
+    const parsed = JSON.parse(value) as Partial<PublicIdentity> & { v?: number };
+    return {
+      transportPublicKey: typeof parsed.transportPublicKey === "string" ? parsed.transportPublicKey : null,
+      signingPublicKey: typeof parsed.signingPublicKey === "string" ? parsed.signingPublicKey : null,
+      identityFingerprint: typeof parsed.identityFingerprint === "string" ? parsed.identityFingerprint : null,
+    };
+  } catch {
+    return {
+      transportPublicKey: value,
+      signingPublicKey: null,
+      identityFingerprint: null,
+    };
   }
 }

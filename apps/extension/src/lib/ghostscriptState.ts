@@ -1,12 +1,14 @@
 import type { GhostscriptThreadMessage, PendingSendStatus } from "@ghostscript/shared";
+import {
+  createWrappingSecret,
+  type LocalIdentityBundle,
+  type WrappedIdentityBundle,
+  unwrapIdentityBundle,
+  wrapIdentityBundle,
+} from "./crypto";
 import { readStorageValue, writeStorageValue } from "./storage";
 
 const GHOSTSCRIPT_STATE_STORAGE_KEY = "ghostscript-extension-ghostscript-state";
-
-export interface LocalIdentityKeypair {
-  publicKey: string;
-  privateKey: string;
-}
 
 export interface PendingSendState {
   threadId: string;
@@ -38,11 +40,18 @@ export interface GhostscriptConversationState {
 }
 
 export interface GhostscriptState {
-  identityKeysBySessionId: Record<string, LocalIdentityKeypair>;
+  localWrapSecret: string | null;
+  identityKeysBySessionId: Record<string, WrappedIdentityBundle | LegacyLocalIdentityKeypair>;
   conversationsByThreadId: Record<string, GhostscriptConversationState>;
 }
 
+interface LegacyLocalIdentityKeypair {
+  publicKey: string;
+  privateKey: string;
+}
+
 const EMPTY_STATE: GhostscriptState = {
+  localWrapSecret: null,
   identityKeysBySessionId: {},
   conversationsByThreadId: {},
 };
@@ -54,20 +63,30 @@ export async function readGhostscriptState(): Promise<GhostscriptState> {
   return state ?? EMPTY_STATE;
 }
 
-export async function storeLocalIdentityKeypair(sessionId: string, keypair: LocalIdentityKeypair) {
+export async function storeLocalIdentityBundle(sessionId: string, bundle: LocalIdentityBundle) {
   const state = await readGhostscriptState();
+  const localWrapSecret = state.localWrapSecret ?? (await createWrappingSecret());
+  const wrappedIdentity = await wrapIdentityBundle(bundle, localWrapSecret);
+
   await writeGhostscriptState({
     ...state,
+    localWrapSecret,
     identityKeysBySessionId: {
       ...state.identityKeysBySessionId,
-      [sessionId]: keypair,
+      [sessionId]: wrappedIdentity,
     },
   });
 }
 
-export async function getLocalIdentityKeypair(sessionId: string) {
+export async function getLocalIdentityBundle(sessionId: string) {
   const state = await readGhostscriptState();
-  return state.identityKeysBySessionId[sessionId] ?? null;
+  const identityRecord = state.identityKeysBySessionId[sessionId];
+
+  if (!identityRecord || !isWrappedIdentityBundle(identityRecord) || !state.localWrapSecret) {
+    return null;
+  }
+
+  return unwrapIdentityBundle(identityRecord, state.localWrapSecret);
 }
 
 export async function ensureConversationState(threadId: string) {
@@ -228,4 +247,8 @@ function normalizeConversationState(conversation: GhostscriptConversationState):
       ]),
     ),
   };
+}
+
+function isWrappedIdentityBundle(value: WrappedIdentityBundle | LegacyLocalIdentityKeypair): value is WrappedIdentityBundle {
+  return "wrappedKeyMaterial" in value && "wrapSalt" in value && "wrapNonce" in value;
 }

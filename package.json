@@ -5,6 +5,11 @@
   "packageManager": "pnpm@10.12.1",
   "scripts": {
     "build": "corepack pnpm -r build",
-    "typecheck": "corepack pnpm -r typecheck"
+    "typecheck": "corepack pnpm -r typecheck",
+    "test": "corepack pnpm exec tsx --test apps/**/*.test.ts tests/**/*.test.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^24.12.2",
+    "tsx": "^4.21.0"
   }
 }

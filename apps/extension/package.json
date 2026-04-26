@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@ghostscript/shared": "workspace:*",
+    "libsodium-wrappers-sumo": "^0.8.4",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"
   },

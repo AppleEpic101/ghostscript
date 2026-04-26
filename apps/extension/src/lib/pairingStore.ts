@@ -221,9 +221,20 @@ function normalizeActivePairing(activePairing: ActivePairingState | null) {
 }
 
 function normalizeParticipant(participant: PairingParticipant) {
+  const legacyParticipant = participant as PairingParticipant & {
+    identityPublicKey?: string | null;
+    transportPublicKey?: string | null;
+    signingPublicKey?: string | null;
+    identityFingerprint?: string | null;
+    displayName?: string;
+  };
+
   return {
     ...participant,
-    username: participant.username ?? (participant as PairingParticipant & { displayName?: string }).displayName ?? "",
+    username: participant.username ?? legacyParticipant.displayName ?? "",
+    transportPublicKey: legacyParticipant.transportPublicKey ?? legacyParticipant.identityPublicKey ?? null,
+    signingPublicKey: legacyParticipant.signingPublicKey ?? null,
+    identityFingerprint: legacyParticipant.identityFingerprint ?? null,
   };
 }
 

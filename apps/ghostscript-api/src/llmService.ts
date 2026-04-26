@@ -1,8 +1,14 @@
 import OpenAI from "openai";
 import type { LLMEncodingConfig } from "@ghostscript/shared";
 import { ApiError } from "./service";
+import {
+  decodeRankedTextToBitstring,
+  encodeBitstringAsRankedText,
+  getTransportMetadata,
+  resolveEncodingConfig,
+} from "./transport";
 
-type BridgeMode = "passthrough" | "strict-stub";
+type BridgeMode = "rank-local" | "passthrough";
 
 export interface EncodeRequestBody {
   prompt: string;
@@ -18,7 +24,7 @@ export interface DecodeRequestBody {
 }
 
 const mode = getBridgeMode(process.env.LLM_BRIDGE_MODE);
-const model = process.env.OPENAI_MODEL?.trim() || "gpt-4.1-mini";
+const passthroughModel = process.env.OPENAI_MODEL?.trim() || "gpt-4.1-mini";
 const openAiApiKey = process.env.OPENAI_API_KEY?.trim() || "";
 const openai = openAiApiKey ? new OpenAI({ apiKey: openAiApiKey }) : null;
 const PASSTHROUGH_MIN_WORD_TARGET = 8;
@@ -28,21 +34,34 @@ const PASSTHROUGH_MAX_CHAR_TARGET = 220;
 
 export class LlmService {
   getHealth() {
+    const metadata = getTransportMetadata(undefined);
+
     return {
       mode,
-      model,
+      model: mode === "passthrough" ? passthroughModel : metadata.modelId,
+      tokenizerId: metadata.tokenizerId,
+      backend: metadata.backend,
       configured: Boolean(openai),
     };
   }
 
   async encode(body: EncodeRequestBody) {
     validateEncodeRequest(body);
+    const config = resolveEncodingConfig(body.config);
 
-    if (mode === "strict-stub") {
-      throw new ApiError(
-        501,
-        "Rank-selection encoding is not implemented yet. Switch LLM_BRIDGE_MODE=passthrough for local UI testing.",
-      );
+    if (mode === "rank-local") {
+      const visibleText = encodeBitstringAsRankedText({
+        prompt: body.prompt,
+        bitstring: body.bitstring,
+        wordTarget: body.wordTarget,
+        config,
+      });
+
+      return {
+        visibleText,
+        mode,
+        configId: config.configId,
+      };
     }
 
     const client = requireOpenAI();
@@ -74,12 +93,18 @@ export class LlmService {
 
   async decode(body: DecodeRequestBody) {
     validateDecodeRequest(body);
+    const config = resolveEncodingConfig(body.config);
 
-    if (mode === "strict-stub") {
-      throw new ApiError(
-        501,
-        "Rank-selection decoding is not implemented yet. Passthrough mode intentionally returns null for decode.",
-      );
+    if (mode === "rank-local") {
+      return {
+        bitstring: decodeRankedTextToBitstring({
+          prompt: body.prompt,
+          visibleText: body.visibleText,
+          config,
+        }),
+        mode,
+        configId: config.configId,
+      };
     }
 
     return {
@@ -134,7 +159,7 @@ async function createPassthroughResponse(
   wordTarget: number,
 ) {
   return client.responses.create({
-    model,
+    model: passthroughModel,
     input: prompt,
     max_output_tokens: estimateMaxOutputTokens(wordTarget),
     truncation: "auto",
@@ -176,11 +201,11 @@ function requireOpenAI() {
 }
 
 function getBridgeMode(value: string | undefined): BridgeMode {
-  if (value === "strict-stub") {
-    return "strict-stub";
+  if (value === "passthrough") {
+    return "passthrough";
   }
 
-  return "passthrough";
+  return "rank-local";
 }
 
 function validateEncodeRequest(body: EncodeRequestBody) {

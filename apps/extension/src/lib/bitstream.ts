@@ -27,7 +27,8 @@ export function deserializeEnvelopeFromBitstring(bitstring: string): MessageEnve
     envelope === null ||
     typeof envelope !== "object" ||
     typeof envelope.senderId !== "string" ||
-    typeof envelope.msgId !== "number"
+    typeof envelope.msgId !== "number" ||
+    typeof envelope.ciphertext !== "string"
   ) {
     throw new Error("Encoded payload did not decode into a valid envelope.");
   }

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import ReactDOM from "react-dom/client";
-import { generateIdentityKeypair } from "../lib/crypto";
-import { storeLocalIdentityKeypair } from "../lib/ghostscriptState";
+import { generateIdentityBundle, toPublicIdentity } from "../lib/crypto";
+import { storeLocalIdentityBundle } from "../lib/ghostscriptState";
 import { createInvite, getInviteSessionStatus, joinInvite, resetPairing } from "../lib/pairingApi";
 import {
   applyInviteSessionSnapshot,
@@ -168,15 +168,15 @@ function PopupApp() {
     setRequestStatus("loading");
 
     try {
-      const identityKeypair = await generateIdentityKeypair();
+      const identityBundle = await generateIdentityBundle();
       const response = await createInvite({
         inviterName: discordUsername.trim(),
         coverTopic: coverTopic.trim(),
-        identityPublicKey: identityKeypair.publicKey,
+        identity: toPublicIdentity(identityBundle),
       });
 
       await storeDiscordUsername(discordUsername.trim());
-      await storeLocalIdentityKeypair(response.session.id, identityKeypair);
+      await storeLocalIdentityBundle(response.session.id, identityBundle);
       await storeCreatedInvite({
         inviteCode: response.session.invite.code,
         session: response.session,
@@ -214,13 +214,13 @@ function PopupApp() {
     setRequestStatus("loading");
 
     try {
-      const identityKeypair = await generateIdentityKeypair();
+      const identityBundle = await generateIdentityBundle();
       const response = await joinInvite(normalizedCode, {
         joinerName: discordUsername.trim(),
-        identityPublicKey: identityKeypair.publicKey,
+        identity: toPublicIdentity(identityBundle),
       });
 
-      await storeLocalIdentityKeypair(response.session.id, identityKeypair);
+      await storeLocalIdentityBundle(response.session.id, identityBundle);
       await storeJoinedPairing({
         inviteCode: response.session.invite.code,
         session: response.session,

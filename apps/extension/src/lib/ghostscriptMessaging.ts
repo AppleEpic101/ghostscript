@@ -11,7 +11,7 @@ import {
 } from "./discord";
 import {
   cacheConversationMessages,
-  getLocalIdentityKeypair,
+  getLocalIdentityBundle,
   isPendingSendStale,
   type DecodedGhostscriptMessageState,
   reserveNextMessageId,
@@ -282,21 +282,22 @@ function renderStoredDecodedMessage(
 
 async function getSessionCryptoMaterial(pairing: ActivePairingState): Promise<SessionCryptoMaterial> {
   const counterpart = pairing.counterpart;
-  if (!counterpart?.identityPublicKey) {
+  if (!counterpart?.transportPublicKey) {
     throw new Error("Your partner's Ghostscript key is not available yet.");
   }
 
-  const localKeypair = await getLocalIdentityKeypair(pairing.session.id);
+  const localKeypair = await getLocalIdentityBundle(pairing.session.id);
   if (!localKeypair) {
-    throw new Error("The local Ghostscript identity key for this pairing is missing.");
+    throw new Error("The local Ghostscript identity bundle is missing or still uses the legacy key format. Re-pair to continue.");
   }
 
   return {
+    threadId: getRequiredThreadId(),
     sessionId: pairing.session.id,
     localParticipantId: pairing.localParticipant.id,
     counterpartParticipantId: counterpart.id,
-    localPrivateKey: localKeypair.privateKey,
-    counterpartPublicKey: counterpart.identityPublicKey,
+    localTransportPrivateKey: localKeypair.transportPrivateKey,
+    counterpartTransportPublicKey: counterpart.transportPublicKey,
   };
 }
 
