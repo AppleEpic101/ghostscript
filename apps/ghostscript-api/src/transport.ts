@@ -1,5 +1,9 @@
 import { AutoModelForCausalLM, AutoTokenizer, Tensor } from "@huggingface/transformers";
 import { DEFAULT_TRANSPORT_CONFIG_ID, type LLMEncodingConfig } from "@ghostscript/shared";
+// @ts-expect-error Transformers.js internal cache helper has no published type entrypoint.
+import { DynamicCache } from "../node_modules/@huggingface/transformers/src/cache_utils.js";
+// @ts-expect-error Transformers.js internal cache helper has no published type entrypoint.
+import { getPastKeyValues } from "../node_modules/@huggingface/transformers/src/models/modeling_utils.js";
 import { loadCausalLmContext } from "./modelRuntime";
 
 const DEFAULT_ENCODING_CONFIG: LLMEncodingConfig = {
@@ -35,10 +39,18 @@ interface LocalGpt2Context {
   model: Awaited<ReturnType<typeof AutoModelForCausalLM.from_pretrained>>;
   bosTokenId: number;
   device: string;
+  supportsIncrementalCache: boolean;
+}
+
+type ModelCache = InstanceType<typeof DynamicCache>;
+
+interface CachedStepState {
+  prefixTokenIds: number[];
+  nextTokenLogits: Float32Array;
+  cache: ModelCache;
 }
 
 let contextPromise: Promise<LocalGpt2Context> | null = null;
-const mergeSafeTokenCache = new Map<string, Promise<boolean>>();
 
 export function resolveEncodingConfig(config: LLMEncodingConfig | undefined): LLMEncodingConfig {
   if (!config) {
@@ -211,41 +223,54 @@ async function createTransport(prompt: string, config: LLMEncodingConfig) {
   assertConfigCompatibility(config);
   const context = await getContext();
   const promptTokenIds = await tokenizeText(context, prompt);
+  let state = await createInitialStepState(context, promptTokenIds);
 
   return {
     async buildCandidatePool(outputTokenIds: number[]) {
-      const contextTokenIds = truncateContext([...promptTokenIds, ...outputTokenIds], config.maxContextTokens);
-      const modelInput = contextTokenIds.length > 0 ? contextTokenIds : [context.bosTokenId];
-      const logits = await getNextTokenLogits(context, modelInput);
-      const rankedCandidates: CandidateToken[] = [];
+      const logits = context.supportsIncrementalCache
+        ? (state = await ensureStepStateForPrefix(context, promptTokenIds, outputTokenIds, state, config.maxContextTokens)).nextTokenLogits
+        : await getNextTokenLogits(
+          context,
+          truncateContext([...promptTokenIds, ...outputTokenIds], config.maxContextTokens).length > 0
+            ? truncateContext([...promptTokenIds, ...outputTokenIds], config.maxContextTokens)
+            : [context.bosTokenId],
+        );
+      const minimumPoolSize = Math.max(2 ** config.bitsPerStep, 1);
+      const previousTokenId = outputTokenIds[outputTokenIds.length - 1] ?? null;
+      const rankedTokenIds = Array.from({ length: logits.length }, (_, tokenId) => tokenId);
 
-      for (let tokenId = 0; tokenId < logits.length; tokenId += 1) {
+      rankedTokenIds.sort((leftId, rightId) => {
+        const leftLogit = logits[leftId] ?? Number.NEGATIVE_INFINITY;
+        const rightLogit = logits[rightId] ?? Number.NEGATIVE_INFINITY;
+
+        if (rightLogit !== leftLogit) {
+          return rightLogit - leftLogit;
+        }
+
+        return leftId - rightId;
+      });
+
+      const safeCandidates: CandidateToken[] = [];
+
+      for (const tokenId of rankedTokenIds) {
         const tokenText = decodeToken(context, tokenId);
         if (config.excludedTokenSet.includes(tokenText)) {
           continue;
         }
 
-        rankedCandidates.push({
-          id: tokenId,
-          logit: logits[tokenId],
-        });
-      }
-
-      rankedCandidates.sort((left, right) => {
-        if (right.logit !== left.logit) {
-          return right.logit - left.logit;
+        if (await isMergeSafeAppend(context, previousTokenId, tokenId)) {
+          safeCandidates.push({
+            id: tokenId,
+            logit: logits[tokenId] ?? Number.NEGATIVE_INFINITY,
+          });
         }
 
-        return left.id - right.id;
-      });
+        if (safeCandidates.length >= minimumPoolSize) {
+          break;
+        }
+      }
 
-      const minimumPoolSize = Math.max(2 ** config.bitsPerStep, 1);
-      const previousTokenId = outputTokenIds[outputTokenIds.length - 1] ?? null;
-      return __internal_collectTopMergeSafeCandidates({
-        rankedCandidates,
-        minimumPoolSize,
-        isMergeSafe: (candidate) => isMergeSafeAppend(context, previousTokenId, candidate.id),
-      });
+      return safeCandidates;
     },
     async tokenizeOutput(visibleText: string) {
       return tokenizeText(context, visibleText);
@@ -260,12 +285,14 @@ async function getContext(): Promise<LocalGpt2Context> {
   contextPromise ??= (async () => {
     const { tokenizer, model, device } = await loadCausalLmContext(MODEL_ID);
     const bosTokenId = (tokenizer as { bos_token_id?: number }).bos_token_id ?? 50256;
+    const supportsIncrementalCache = model.sessions.model.inputNames.some((name: string) => name.startsWith("past_key_values."));
 
     return {
       tokenizer,
       model,
       bosTokenId,
       device,
+      supportsIncrementalCache,
     };
   })();
 
@@ -301,9 +328,130 @@ async function getNextTokenLogits(context: LocalGpt2Context, tokenIds: number[])
     ),
   });
 
-  const [, sequenceLength, vocabSize] = outputs.logits.dims;
+  return extractLastTokenLogits(outputs.logits.data as Float32Array, outputs.logits.dims);
+}
+
+async function createInitialStepState(context: LocalGpt2Context, promptTokenIds: number[]): Promise<CachedStepState> {
+  const modelInput = promptTokenIds.length > 0 ? promptTokenIds : [context.bosTokenId];
+  const { nextTokenLogits, cache } = await runModelStep(context, {
+    inputTokenIds: modelInput,
+    totalSequenceLength: modelInput.length,
+  });
+
+  return {
+    prefixTokenIds: [],
+    nextTokenLogits,
+    cache,
+  };
+}
+
+async function ensureStepStateForPrefix(
+  context: LocalGpt2Context,
+  promptTokenIds: number[],
+  desiredPrefixTokenIds: number[],
+  currentState: CachedStepState,
+  maxContextTokens: number,
+): Promise<CachedStepState> {
+  const desiredContext = [...promptTokenIds, ...desiredPrefixTokenIds];
+  if (desiredContext.length > maxContextTokens) {
+    return rebuildStepStateFromTruncatedContext(context, promptTokenIds, desiredPrefixTokenIds, maxContextTokens);
+  }
+
+  if (!isPrefixMatch(currentState.prefixTokenIds, desiredPrefixTokenIds)) {
+    currentState = await createInitialStepState(context, promptTokenIds);
+  }
+
+  while (currentState.prefixTokenIds.length < desiredPrefixTokenIds.length) {
+    const nextTokenId = desiredPrefixTokenIds[currentState.prefixTokenIds.length];
+    currentState = await advanceStepState(context, promptTokenIds, currentState, nextTokenId);
+  }
+
+  return currentState;
+}
+
+async function rebuildStepStateFromTruncatedContext(
+  context: LocalGpt2Context,
+  promptTokenIds: number[],
+  desiredPrefixTokenIds: number[],
+  maxContextTokens: number,
+): Promise<CachedStepState> {
+  const fullContext = [...promptTokenIds, ...desiredPrefixTokenIds];
+  const truncatedContext = truncateContext(fullContext, maxContextTokens);
+  const modelInput = truncatedContext.length > 0 ? truncatedContext : [context.bosTokenId];
+  const { nextTokenLogits, cache } = await runModelStep(context, {
+    inputTokenIds: modelInput,
+    totalSequenceLength: modelInput.length,
+  });
+
+  return {
+    prefixTokenIds: [...desiredPrefixTokenIds],
+    nextTokenLogits,
+    cache,
+  };
+}
+
+async function advanceStepState(
+  context: LocalGpt2Context,
+  promptTokenIds: number[],
+  currentState: CachedStepState,
+  nextTokenId: number,
+): Promise<CachedStepState> {
+  const totalSequenceLength = promptTokenIds.length + currentState.prefixTokenIds.length + 1;
+  const { nextTokenLogits, cache } = await runModelStep(context, {
+    inputTokenIds: [nextTokenId],
+    totalSequenceLength,
+    cache: currentState.cache,
+  });
+
+  return {
+    prefixTokenIds: [...currentState.prefixTokenIds, nextTokenId],
+    nextTokenLogits,
+    cache,
+  };
+}
+
+function isPrefixMatch(currentPrefixTokenIds: number[], desiredPrefixTokenIds: number[]) {
+  if (currentPrefixTokenIds.length > desiredPrefixTokenIds.length) {
+    return false;
+  }
+
+  return currentPrefixTokenIds.every((value, index) => value === desiredPrefixTokenIds[index]);
+}
+
+async function runModelStep(
+  context: LocalGpt2Context,
+  params: {
+    inputTokenIds: number[];
+    totalSequenceLength: number;
+    cache?: ModelCache;
+  },
+) {
+  const outputs = await context.model({
+    input_ids: new Tensor(
+      "int64",
+      BigInt64Array.from(params.inputTokenIds.map((value) => BigInt(value))),
+      [1, params.inputTokenIds.length],
+    ),
+    attention_mask: new Tensor(
+      "int64",
+      BigInt64Array.from(Array.from({ length: params.totalSequenceLength }, () => 1n)),
+      [1, params.totalSequenceLength],
+    ),
+    ...(params.cache ? { past_key_values: params.cache } : {}),
+  });
+
+  const cache = getPastKeyValues(outputs, params.cache ?? new DynamicCache());
+  const nextTokenLogits = extractLastTokenLogits(outputs.logits.data as Float32Array, outputs.logits.dims);
+
+  return {
+    nextTokenLogits,
+    cache,
+  };
+}
+
+function extractLastTokenLogits(logits: Float32Array, dims: readonly number[]) {
+  const [, sequenceLength, vocabSize] = dims;
   const rowOffset = (sequenceLength - 1) * vocabSize;
-  const logits = outputs.logits.data as Float32Array;
   return logits.slice(rowOffset, rowOffset + vocabSize);
 }
 
@@ -312,22 +460,13 @@ function decodeToken(context: LocalGpt2Context, tokenId: number) {
 }
 
 async function isMergeSafeAppend(context: LocalGpt2Context, previousTokenId: number | null, tokenId: number) {
-  const cacheKey = previousTokenId === null ? `start:${tokenId}` : `${previousTokenId}:${tokenId}`;
-  let result = mergeSafeTokenCache.get(cacheKey);
-  if (!result) {
-    result = (async () => {
-      const candidateSequence = previousTokenId === null ? [tokenId] : [previousTokenId, tokenId];
-      const decoded = context.tokenizer.decode(candidateSequence, { skip_special_tokens: false });
-      const retokenized = await tokenizeText(context, decoded);
-      return (
-        retokenized.length === candidateSequence.length &&
-        retokenized.every((value, index) => value === candidateSequence[index])
-      );
-    })();
-    mergeSafeTokenCache.set(cacheKey, result);
-  }
-
-  return result;
+  const candidateSequence = previousTokenId === null ? [tokenId] : [previousTokenId, tokenId];
+  const decoded = context.tokenizer.decode(candidateSequence, { skip_special_tokens: false });
+  const retokenized = await tokenizeText(context, decoded);
+  return (
+    retokenized.length === candidateSequence.length &&
+    retokenized.every((value, index) => value === candidateSequence[index])
+  );
 }
 
 function truncateContext(tokenIds: number[], maxContextTokens: number) {

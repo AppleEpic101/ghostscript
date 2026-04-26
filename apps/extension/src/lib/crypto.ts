@@ -9,6 +9,7 @@ const WRAP_IV_BYTES = 12;
 const PLAINTEXT_PAYLOAD_MAGIC = "GSCP1";
 const PLAINTEXT_FORMAT_RAW = 0;
 const PLAINTEXT_FORMAT_DEFLATE = 1;
+const MESSAGE_ENCRYPTION_DISABLED = true;
 
 export interface SessionCryptoMaterial {
   sessionId: string;
@@ -174,16 +175,21 @@ export async function encryptMessageEnvelope(
   const encodedPlaintext = options?.legacyPayloadEncoding
     ? new TextEncoder().encode(plaintext)
     : encodePlaintextPayload(plaintext);
-  const ciphertext = await crypto.subtle.encrypt(
-    {
-      name: "AES-GCM",
-      iv: nonce,
-      additionalData,
-      tagLength: 128,
-    },
-    cryptoKey,
-    encodedPlaintext,
-  );
+  const ciphertext = MESSAGE_ENCRYPTION_DISABLED
+    ? encodedPlaintext.buffer.slice(
+      encodedPlaintext.byteOffset,
+      encodedPlaintext.byteOffset + encodedPlaintext.byteLength,
+    )
+    : await crypto.subtle.encrypt(
+      {
+        name: "AES-GCM",
+        iv: nonce,
+        additionalData,
+        tagLength: 128,
+      },
+      cryptoKey,
+      encodedPlaintext,
+    );
 
   const envelope = {
     v: ENVELOPE_VERSION,
@@ -201,7 +207,9 @@ export async function encryptMessageEnvelope(
     recipientId: material.counterpartParticipantId,
     msgId,
     ciphertextLength: envelope.ciphertext.length,
-    payloadEncoding: options?.legacyPayloadEncoding ? "legacy-raw-utf8" : "compressed-default",
+    payloadEncoding: MESSAGE_ENCRYPTION_DISABLED
+      ? (options?.legacyPayloadEncoding ? "legacy-raw-utf8-unencrypted" : "compressed-default-unencrypted")
+      : (options?.legacyPayloadEncoding ? "legacy-raw-utf8" : "compressed-default"),
   });
 
   return envelope;
@@ -229,17 +237,23 @@ export async function decryptMessageEnvelope(
     const { key, nonce } = await deriveDirectionalSecrets(material, senderId, material.localParticipantId, envelope.msgId);
     const additionalData = encodeAdditionalData(material.threadId, senderId, material.localParticipantId, envelope.msgId);
     const cryptoKey = await crypto.subtle.importKey("raw", key, "AES-GCM", false, ["decrypt"]);
-    const plaintext = await crypto.subtle.decrypt(
-      {
-        name: "AES-GCM",
-        iv: nonce,
-        additionalData,
-        tagLength: 128,
-      },
-      cryptoKey,
-      base64ToArrayBuffer(envelope.ciphertext),
-    );
+    const plaintext = MESSAGE_ENCRYPTION_DISABLED
+      ? base64ToArrayBuffer(envelope.ciphertext)
+      : await crypto.subtle.decrypt(
+        {
+          name: "AES-GCM",
+          iv: nonce,
+          additionalData,
+          tagLength: 128,
+        },
+        cryptoKey,
+        base64ToArrayBuffer(envelope.ciphertext),
+      );
     const decodedPlaintext = decodePlaintextPayload(new Uint8Array(plaintext));
+    void key;
+    void nonce;
+    void additionalData;
+    void cryptoKey;
 
     logGhostscriptDebug("crypto", "decrypt-complete", {
       sessionId: material.sessionId,

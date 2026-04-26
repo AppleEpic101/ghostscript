@@ -357,8 +357,8 @@ export function hideDiscordMessageLocally(discordMessageId: string) {
 export function renderDecodedMessageOverlay(params: {
   threadId: string;
   discordMessageId: string;
-  status: "decoded" | "tampered";
-  plaintext: string | null;
+  status: "decoded";
+  plaintext: string;
   visibleText: string;
   activeView: DecodedGhostscriptMessageView;
 }) {
@@ -385,18 +385,6 @@ export function renderDecodedMessageOverlay(params: {
   overlay.dataset.ghostscriptMessageId = params.discordMessageId;
   overlay.dataset.ghostscriptThreadId = params.threadId;
   overlay.dataset.ghostscriptStatus = params.status;
-  overlay.classList.toggle("ghostscript-decoded-overlay--tampered", params.status === "tampered");
-
-  if (params.status === "tampered") {
-    overlay.innerHTML = `
-      <div class="ghostscript-decoded-overlay__header">
-        <span class="ghostscript-decoded-overlay__badge">Ghostscript</span>
-        <span class="ghostscript-decoded-overlay__state">Tampered/Corrupted</span>
-      </div>
-      <p class="ghostscript-decoded-overlay__body ghostscript-decoded-overlay__body--tampered">Ghostscript recovered a framed message here, but it failed authentication.</p>
-    `;
-    return;
-  }
 
   overlay.innerHTML = `
     <div class="ghostscript-decoded-overlay__header">

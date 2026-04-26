@@ -1,8 +1,5 @@
 import React, { useEffect, useState } from "react";
 import ReactDOM from "react-dom/client";
-import { generateIdentityBundle, toPublicIdentity } from "../lib/crypto";
-import { storeLocalIdentityBundle } from "../lib/ghostscriptState";
-import { createInvite, getInviteSessionStatus, joinInvite, resetPairing } from "../lib/pairingApi";
 import {
   applyInviteSessionSnapshot,
   clearInviteDraft,
@@ -18,6 +15,24 @@ import "./popup.css";
 type PopupStep = "home" | "create-invite-details" | "join-invite";
 type RequestStatus = "idle" | "loading" | "success" | "error";
 const LOBBY_SYNC_POLL_MS = 3000;
+let pairingApiModulePromise: Promise<typeof import("../lib/pairingApi")> | null = null;
+let cryptoModulePromise: Promise<typeof import("../lib/crypto")> | null = null;
+let ghostscriptStateModulePromise: Promise<typeof import("../lib/ghostscriptState")> | null = null;
+
+function loadPairingApiModule() {
+  pairingApiModulePromise ??= import("../lib/pairingApi");
+  return pairingApiModulePromise;
+}
+
+function loadCryptoModule() {
+  cryptoModulePromise ??= import("../lib/crypto");
+  return cryptoModulePromise;
+}
+
+function loadGhostscriptStateModule() {
+  ghostscriptStateModulePromise ??= import("../lib/ghostscriptState");
+  return ghostscriptStateModulePromise;
+}
 
 function PopupApp() {
   const [discordUsername, setDiscordUsername] = useState("");
@@ -55,6 +70,7 @@ function PopupApp() {
       }
 
       try {
+        const { getInviteSessionStatus } = await loadPairingApiModule();
         const snapshot = await getInviteSessionStatus(activePairing.inviteCode);
         await applyInviteSessionSnapshot(snapshot);
 
@@ -168,6 +184,8 @@ function PopupApp() {
     setRequestStatus("loading");
 
     try {
+      const [{ generateIdentityBundle, toPublicIdentity }, { storeLocalIdentityBundle }, { createInvite }] =
+        await Promise.all([loadCryptoModule(), loadGhostscriptStateModule(), loadPairingApiModule()]);
       const identityBundle = await generateIdentityBundle();
       const response = await createInvite({
         inviterName: discordUsername.trim(),
@@ -214,6 +232,8 @@ function PopupApp() {
     setRequestStatus("loading");
 
     try {
+      const [{ generateIdentityBundle, toPublicIdentity }, { storeLocalIdentityBundle }, { joinInvite }] =
+        await Promise.all([loadCryptoModule(), loadGhostscriptStateModule(), loadPairingApiModule()]);
       const identityBundle = await generateIdentityBundle();
       const response = await joinInvite(normalizedCode, {
         joinerName: discordUsername.trim(),
@@ -255,6 +275,7 @@ function PopupApp() {
     setFeedback(null);
 
     try {
+      const { resetPairing } = await loadPairingApiModule();
       await resetPairing({ inviteCode: lobbyInviteCode });
       await endLocalPairing(lobbyInviteCode);
       setCreatedCode(null);

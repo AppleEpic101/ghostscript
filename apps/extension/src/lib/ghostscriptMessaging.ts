@@ -1,7 +1,4 @@
 import type { ActivePairingState, EncodedGhostscriptMessage, GhostscriptThreadMessage } from "@ghostscript/shared";
-import { estimateWordTarget, serializeEnvelopeToBitstring } from "./bitstream";
-import { compressBitstringForTransport } from "./bitCompression";
-import { decryptMessageEnvelope, encryptMessageEnvelope, type SessionCryptoMaterial } from "./crypto";
 import { buildDecodeHistoryWindows } from "./decodedMessages";
 import {
   buildBoundedConversationWindow,
@@ -14,7 +11,6 @@ import {
 import { attemptIncomingMessageDecode } from "./incomingMessageDecode";
 import {
   cacheConversationMessages,
-  getLocalIdentityBundle,
   isPendingSendStale,
   type DecodedGhostscriptMessageState,
   reserveNextMessageId,
@@ -33,9 +29,9 @@ import {
   getTransportProtocolVersion,
 } from "./llmBridge";
 import { logGhostscriptDebug } from "./debugLog";
-import { readExtensionState } from "./pairingStore";
+import { decodePlaintextFromTransportBitstring, encodePlaintextToTransportBitstring } from "./plaintextTransport";
 import { countFilteredPromptMessages, filterPromptMessages } from "./promptHistory";
-import { buildConversationPrompt } from "./promptBuilder";
+import { buildConversationPrompt, estimateWordTarget } from "./promptBuilder";
 
 const DISCORD_MAX_MESSAGE_LENGTH = 2000;
 
@@ -90,7 +86,6 @@ export async function sendEncryptedGhostscriptMessage(params: {
     filteredPromptMessageCount,
   });
 
-  const material = await getSessionCryptoMaterial(params.pairing);
   const msgId = await reserveNextMessageId(threadId);
   let attemptedCoverText = "";
   let attemptedEncodedMessage: EncodedGhostscriptMessage | null = null;
@@ -107,11 +102,9 @@ export async function sendEncryptedGhostscriptMessage(params: {
   });
 
   try {
-    const envelope = await encryptMessageEnvelope(params.plaintext, msgId, material);
-    const envelopeBitstring = serializeEnvelopeToBitstring(envelope);
-    const compressedTransport = await compressBitstringForTransport(envelopeBitstring);
+    const transportBitstring = encodePlaintextToTransportBitstring(params.plaintext);
     const encodingConfig = getDefaultEncodingConfig();
-    const wordTarget = estimateWordTarget(compressedTransport.bitstring.length, encodingConfig.bitsPerStep);
+    const wordTarget = estimateWordTarget(transportBitstring.length, encodingConfig.bitsPerStep);
     const contextWindow = buildBoundedConversationWindow(promptMessages);
     const prompt = buildConversationPrompt({
       coverTopic: params.pairing.defaultCoverTopic ?? "general chat",
@@ -127,16 +120,15 @@ export async function sendEncryptedGhostscriptMessage(params: {
     });
     const visibleText = await encodeBitstringAsCoverText({
       prompt,
-      bitstring: compressedTransport.bitstring,
+      bitstring: transportBitstring,
       wordTarget,
       config: encodingConfig,
     });
-    logGhostscriptDebug("messaging", "send-bitstring-compressed", {
+    logGhostscriptDebug("messaging", "send-transport-encoded", {
       threadId,
       sessionId: params.pairing.session.id,
-      originalBitLength: envelopeBitstring.length,
-      framedBitLength: compressedTransport.framedBitLength,
-      compressionFormat: compressedTransport.format,
+      plaintextBitLength: transportBitstring.length - 32,
+      framedBitLength: transportBitstring.length,
     });
     const encodedMessage = {
       visibleText,
@@ -158,7 +150,7 @@ export async function sendEncryptedGhostscriptMessage(params: {
       );
     }
 
-      await setPendingSend(threadId, {
+    await setPendingSend(threadId, {
       threadId,
       sessionId: params.pairing.session.id,
       status: "awaiting-discord-confirm",
@@ -307,7 +299,6 @@ async function decodeIncomingMessages(
 ) {
   const threadId = getRequiredThreadId();
   const conversation = await readConversationState(threadId);
-  const material = await getSessionCryptoMaterial(params.pairing);
 
   for (const message of messages) {
     if (message.direction !== "incoming") {
@@ -357,11 +348,9 @@ async function decodeIncomingMessages(
       visibleText: message.text,
       coverTopic: params.pairing.defaultCoverTopic ?? "general chat",
       historyWindows,
-      material,
       encodingConfigs: getSupportedEncodingConfigs(),
-      defaultConfigId: getDefaultEncodingConfig().configId,
       decodeBitstring: decodeCoverTextToBitstring,
-      decryptEnvelope: decryptMessageEnvelope,
+      decodePlaintext: decodePlaintextFromTransportBitstring,
       fingerprintPrompt: fingerprintTransportPrompt,
       onAttempt(event) {
         diagnostics.push({
@@ -418,41 +407,6 @@ async function decodeIncomingMessages(
       });
       continue;
     }
-
-    if (decodeResult.status === "tampered") {
-      logGhostscriptDebug("messaging", "decode-tampered", {
-        threadId,
-        discordMessageId: message.discordMessageId,
-        diagnostics,
-        outcome: "tampered",
-      });
-      await storeDecodedMessage(threadId, message.discordMessageId, {
-        status: "tampered",
-        plaintext: null,
-        visibleText: message.text,
-        encodedMessage: {
-          visibleText: message.text,
-          configId: decodeResult.configId,
-          modelId: getDefaultEncodingConfig().modelId,
-          tokenizerId: getDefaultEncodingConfig().tokenizerId,
-          transportBackend: getDefaultEncodingConfig().transportBackend,
-          msgId: 0,
-          estimatedWordTarget: 0,
-          transportProtocolVersion: getTransportProtocolVersion(),
-          promptFingerprint: decodeResult.promptFingerprint,
-        },
-        processedAt: new Date().toISOString(),
-        activeView: "decrypted",
-      });
-      renderDecodedMessageOverlay({
-        threadId,
-        discordMessageId: message.discordMessageId,
-        status: "tampered",
-        plaintext: null,
-        visibleText: message.text,
-        activeView: "decrypted",
-      });
-    }
   }
 }
 
@@ -484,44 +438,6 @@ function renderStoredDecodedMessage(
     visibleText: decodedMessage.visibleText,
     activeView: decodedMessage.activeView,
   });
-}
-
-async function getSessionCryptoMaterial(pairing: ActivePairingState): Promise<SessionCryptoMaterial> {
-  const counterpart = pairing.counterpart;
-  const counterpartTransportPublicKey = await resolveCounterpartTransportKey(pairing);
-  if (!counterpart || !counterpartTransportPublicKey) {
-    throw new Error("Your partner's Ghostscript key is not available yet.");
-  }
-
-  const localKeypair = await getLocalIdentityBundle(pairing.session.id);
-  if (!localKeypair) {
-    throw new Error("The local Ghostscript identity bundle is missing or still uses the legacy key format. Re-pair to continue.");
-  }
-
-  return {
-    threadId: getRequiredThreadId(),
-    sessionId: pairing.session.id,
-    localParticipantId: pairing.localParticipant.id,
-    counterpartParticipantId: counterpart.id,
-    localTransportPrivateKey: localKeypair.transportPrivateKey,
-    counterpartTransportPublicKey,
-  };
-}
-
-async function resolveCounterpartTransportKey(pairing: ActivePairingState) {
-  const directKey = pairing.counterpart?.transportPublicKey ?? (pairing.counterpart as { identityPublicKey?: string | null } | null)?.identityPublicKey ?? null;
-  if (directKey) {
-    return directKey;
-  }
-
-  const state = await readExtensionState();
-  const contact = state.contacts.find(
-    (candidate) =>
-      candidate.id === pairing.counterpart?.id ||
-      (candidate.sessionId === pairing.session.id && candidate.username === pairing.counterpart?.username),
-  );
-
-  return contact?.transportPublicKey ?? null;
 }
 
 function getRequiredThreadId() {

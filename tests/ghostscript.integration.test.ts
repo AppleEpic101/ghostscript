@@ -1,22 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {
-  __internal_encodePlaintextPayload,
-  decryptMessageEnvelope,
-  encryptMessageEnvelope,
-  generateIdentityBundle,
-  type SessionCryptoMaterial,
-} from "../apps/extension/src/lib/crypto";
-import {
-  deserializeEnvelopeFromBitstring,
-  estimateWordTarget,
-  serializeEnvelopeToBitstring,
-} from "../apps/extension/src/lib/bitstream";
-import {
-  compressBitstringForTransport,
-  decompressBitstringFromTransport,
-} from "../apps/extension/src/lib/bitCompression";
 import { buildConversationPrompt } from "../apps/extension/src/lib/llmBridge";
+import { encodePlaintextToTransportBitstring, decodePlaintextFromTransportBitstring } from "../apps/extension/src/lib/plaintextTransport";
 import { filterPromptMessages } from "../apps/extension/src/lib/promptHistory";
 import { buildBoundedConversationWindow } from "../apps/extension/src/lib/discord";
 import {
@@ -24,9 +9,8 @@ import {
   encodeBitstringAsRankedText,
 } from "../apps/ghostscript-api/src/transport";
 
-test("encrypted envelopes survive rank-selection transport end to end", async () => {
-  const alice = await generateIdentityBundle();
-  const bob = await generateIdentityBundle();
+test("plaintext survives real local GPT-2 rank-selection transport end to end", async () => {
+  const plaintext = "Okay, station works.";
   const prompt = buildConversationPrompt({
     coverTopic: "weekend plans and coffee shops",
     messages: [
@@ -37,69 +21,25 @@ test("encrypted envelopes survive rank-selection transport end to end", async ()
     replyTurn: "",
   });
 
-  const aliceMaterial: SessionCryptoMaterial = {
-    sessionId: "session-integration",
-    threadId: "thread-integration",
-    localParticipantId: "alice",
-    counterpartParticipantId: "bob",
-    localTransportPrivateKey: alice.transportPrivateKey,
-    counterpartTransportPublicKey: bob.transportPublicKey,
-  };
-  const bobMaterial: SessionCryptoMaterial = {
-    sessionId: "session-integration",
-    threadId: "thread-integration",
-    localParticipantId: "bob",
-    counterpartParticipantId: "alice",
-    localTransportPrivateKey: bob.transportPrivateKey,
-    counterpartTransportPublicKey: alice.transportPublicKey,
-  };
-
-  const envelope = await encryptMessageEnvelope("Okay, station works.", 11, aliceMaterial);
-  const bitstring = await compressBitstringForTransport(serializeEnvelopeToBitstring(envelope));
+  const transportBitstring = encodePlaintextToTransportBitstring(plaintext);
   const visibleText = await encodeBitstringAsRankedText({
     prompt,
-    bitstring: bitstring.bitstring,
-    wordTarget: estimateWordTarget(bitstring.bitstring.length, 3),
+    bitstring: transportBitstring,
+    wordTarget: estimateWordTarget(transportBitstring.length, 3),
   });
   const decodedBitstring = await decodeRankedTextToBitstring({
     prompt,
     visibleText,
   });
 
-  assert.equal(decodedBitstring, bitstring.bitstring);
-
-  const decodedEnvelope = deserializeEnvelopeFromBitstring(
-    await decompressBitstringFromTransport(decodedBitstring ?? ""),
-  );
-  const plaintext = await decryptMessageEnvelope(decodedEnvelope, bobMaterial);
-
-  assert.equal(plaintext, "Okay, station works.");
+  assert.equal(decodedBitstring, transportBitstring);
+  assert.equal(decodePlaintextFromTransportBitstring(decodedBitstring ?? ""), plaintext);
 });
 
-test("full integration logs plaintext and transport compression ratios", async () => {
-  const alice = await generateIdentityBundle();
-  const bob = await generateIdentityBundle();
-  const plaintextMessage = "Meet near the side entrance after dinner so we can talk without the line getting weird.";
-  const plaintextUtf8Bits = new TextEncoder().encode(plaintextMessage).length * 8;
-  const wrappedPlaintextBits = __internal_encodePlaintextPayload(plaintextMessage).length * 8;
-
-  const aliceMaterial: SessionCryptoMaterial = {
-    sessionId: "session-ratio",
-    threadId: "thread-ratio",
-    localParticipantId: "alice",
-    counterpartParticipantId: "bob",
-    localTransportPrivateKey: alice.transportPrivateKey,
-    counterpartTransportPublicKey: bob.transportPublicKey,
-  };
-  const bobMaterial: SessionCryptoMaterial = {
-    sessionId: "session-ratio",
-    threadId: "thread-ratio",
-    localParticipantId: "bob",
-    counterpartParticipantId: "alice",
-    localTransportPrivateKey: bob.transportPrivateKey,
-    counterpartTransportPublicKey: alice.transportPublicKey,
-  };
-
+test("full integration logs direct plaintext transport ratios", async () => {
+  const plaintext = "Meet near the side entrance after dinner so we can talk without the line getting weird.";
+  const plaintextUtf8Bits = new TextEncoder().encode(plaintext).length * 8;
+  const transportBitstring = encodePlaintextToTransportBitstring(plaintext);
   const prompt = buildConversationPrompt({
     coverTopic: "dinner plans and crowded stations",
     messages: [
@@ -110,67 +50,80 @@ test("full integration logs plaintext and transport compression ratios", async (
     replyTurn: "",
   });
 
-  const envelope = await encryptMessageEnvelope(plaintextMessage, 17, aliceMaterial);
-  const envelopeBitstring = serializeEnvelopeToBitstring(envelope);
-  const compressedTransport = await compressBitstringForTransport(envelopeBitstring);
   const visibleText = await encodeBitstringAsRankedText({
     prompt,
-    bitstring: compressedTransport.bitstring,
-    wordTarget: estimateWordTarget(compressedTransport.bitstring.length, 3),
+    bitstring: transportBitstring,
+    wordTarget: estimateWordTarget(transportBitstring.length, 3),
   });
   const decodedBitstring = await decodeRankedTextToBitstring({
     prompt,
     visibleText,
   });
+  const recoveredPlaintext = decodePlaintextFromTransportBitstring(decodedBitstring ?? "");
 
-  assert.equal(decodedBitstring, compressedTransport.bitstring);
-  const decodedEnvelope = deserializeEnvelopeFromBitstring(
-    await decompressBitstringFromTransport(decodedBitstring ?? ""),
-  );
-  const decryptedPlaintext = await decryptMessageEnvelope(decodedEnvelope, bobMaterial);
-  assert.equal(decryptedPlaintext, plaintextMessage);
+  assert.equal(decodedBitstring, transportBitstring);
+  assert.equal(recoveredPlaintext, plaintext);
 
   console.log(
     [
       "full-integration-ratios",
       `plaintextUtf8Bits=${plaintextUtf8Bits}`,
-      `wrappedPlaintextBits=${wrappedPlaintextBits}`,
-      `plaintextCompressionRatio=${(wrappedPlaintextBits / plaintextUtf8Bits).toFixed(3)}`,
-      `envelopeBits=${envelopeBitstring.length}`,
-      `transportBits=${compressedTransport.bitstring.length}`,
-      `transportCompressionRatio=${(compressedTransport.bitstring.length / envelopeBitstring.length).toFixed(3)}`,
-      `transportFormat=${compressedTransport.format}`,
+      `framedTransportBits=${transportBitstring.length}`,
+      `headerOverheadBits=${transportBitstring.length - plaintextUtf8Bits}`,
+      `transportRatio=${(transportBitstring.length / Math.max(1, plaintextUtf8Bits)).toFixed(3)}`,
       `visibleChars=${visibleText.length}`,
     ].join(" | "),
   );
 });
 
+test("one-word message survives full round trip with direct transport metrics", async () => {
+  const plaintext = "hi";
+  const plaintextUtf8Bytes = new TextEncoder().encode(plaintext).length;
+  const transportBitstring = encodePlaintextToTransportBitstring(plaintext);
+  const estimatedWordTarget = estimateWordTarget(transportBitstring.length, 3);
+  const prompt = buildConversationPrompt({
+    coverTopic: "quick coffee check-in",
+    messages: [
+      createHistoryMessage("1", "Alice", "still around later?", "outgoing"),
+      createHistoryMessage("2", "Bob", "yeah probably, just finishing one thing first", "incoming"),
+    ],
+    wordTarget: 16,
+    replyTurn: "",
+  });
+
+  const visibleText = await encodeBitstringAsRankedText({
+    prompt,
+    bitstring: transportBitstring,
+    wordTarget: estimatedWordTarget,
+  });
+  const decodedBitstring = await decodeRankedTextToBitstring({
+    prompt,
+    visibleText,
+  });
+  const recoveredPlaintext = decodePlaintextFromTransportBitstring(decodedBitstring ?? "");
+
+  assert.equal(decodedBitstring, transportBitstring);
+  assert.equal(recoveredPlaintext, plaintext);
+
+  console.log(
+    [
+      "one-word-roundtrip-metrics",
+      `plaintext="${plaintext}"`,
+      `plaintextChars=${plaintext.length}`,
+      `plaintextUtf8Bytes=${plaintextUtf8Bytes}`,
+      `transportBits=${transportBitstring.length}`,
+      `estimatedWordTarget=${estimatedWordTarget}`,
+      `visibleChars=${visibleText.length}`,
+      `visibleWords=${visibleText.trim().split(/\s+/).filter(Boolean).length}`,
+      `decodedTransportBits=${decodedBitstring?.length ?? 0}`,
+      `decryptedChars=${recoveredPlaintext.length}`,
+      `decryptedUtf8Bytes=${new TextEncoder().encode(recoveredPlaintext).length}`,
+    ].join(" | "),
+  );
+});
+
 test("repeated short sends stay under Discord's hard cap instead of compounding prior cover text", async () => {
-  const alice = await generateIdentityBundle();
-  const bob = await generateIdentityBundle();
-  const aliceMaterial: SessionCryptoMaterial = {
-    sessionId: "session-integration",
-    threadId: "thread-integration",
-    localParticipantId: "alice",
-    counterpartParticipantId: "bob",
-    localTransportPrivateKey: alice.transportPrivateKey,
-    counterpartTransportPublicKey: bob.transportPublicKey,
-  };
-  const conversation = {
-    confirmedEncodedMessages: [] as Array<{
-      visibleText: string;
-      configId: "ghostscript-default-v1";
-      modelId: "xenova-distilgpt2-v1";
-      tokenizerId: "gpt2-tokenizer-v1";
-      transportBackend: "local-gpt2-top4-v1";
-      msgId: number;
-      estimatedWordTarget: number;
-      transportProtocolVersion: 1;
-      promptFingerprint: string;
-    }>,
-    decodedMessages: {},
-    pendingSend: null,
-  };
+  const conversation = createConversationState();
   const cachedMessages: Array<{
     threadId: string;
     discordMessageId: string;
@@ -182,9 +135,8 @@ test("repeated short sends stay under Discord's hard cap instead of compounding 
   const lengths: number[] = [];
 
   for (let index = 1; index <= 8; index += 1) {
-    const envelope = await encryptMessageEnvelope("a", index, aliceMaterial);
-    const bitstring = await compressBitstringForTransport(serializeEnvelopeToBitstring(envelope));
-    const wordTarget = estimateWordTarget(bitstring.bitstring.length, 3);
+    const transportBitstring = encodePlaintextToTransportBitstring("a");
+    const wordTarget = estimateWordTarget(transportBitstring.length, 3);
     const prompt = buildConversationPrompt({
       coverTopic: "coffee plans",
       contextWindow: buildBoundedConversationWindow(filterPromptMessages(cachedMessages, conversation)),
@@ -193,7 +145,7 @@ test("repeated short sends stay under Discord's hard cap instead of compounding 
     });
     const visibleText = await encodeBitstringAsRankedText({
       prompt,
-      bitstring: bitstring.bitstring,
+      bitstring: transportBitstring,
       wordTarget,
     });
 
@@ -203,17 +155,8 @@ test("repeated short sends stay under Discord's hard cap instead of compounding 
       `send ${index} exceeded Discord's hard cap with ${visibleText.length} chars`,
     );
 
-    conversation.confirmedEncodedMessages.push({
-      visibleText,
-      configId: "ghostscript-default-v1",
-      modelId: "xenova-distilgpt2-v1",
-      tokenizerId: "gpt2-tokenizer-v1",
-      transportBackend: "local-gpt2-top4-v1",
-      msgId: index,
-      estimatedWordTarget: wordTarget,
-      transportProtocolVersion: 1,
-      promptFingerprint: prompt,
-    });
+    const encodedMessage = createEncodedMessage(visibleText, index, wordTarget, prompt);
+    conversation.confirmedEncodedMessages.push(encodedMessage);
     cachedMessages.push({
       threadId: "thread-integration",
       discordMessageId: String(1000000000000000000n + BigInt(index)),
@@ -228,34 +171,8 @@ test("repeated short sends stay under Discord's hard cap instead of compounding 
 });
 
 test("re-encoding the same message does not keep growing cover text", async () => {
-  const alice = await generateIdentityBundle();
-  const bob = await generateIdentityBundle();
-  const aliceMaterial: SessionCryptoMaterial = {
-    sessionId: "session-integration",
-    threadId: "thread-integration",
-    localParticipantId: "alice",
-    counterpartParticipantId: "bob",
-    localTransportPrivateKey: alice.transportPrivateKey,
-    counterpartTransportPublicKey: bob.transportPublicKey,
-  };
-  void bob;
-
   const plaintext = "same message";
-  const conversation = {
-    confirmedEncodedMessages: [] as Array<{
-      visibleText: string;
-      configId: "ghostscript-default-v1";
-      modelId: "xenova-distilgpt2-v1";
-      tokenizerId: "gpt2-tokenizer-v1";
-      transportBackend: "local-gpt2-top4-v1";
-      msgId: number;
-      estimatedWordTarget: number;
-      transportProtocolVersion: 1;
-      promptFingerprint: string;
-    }>,
-    decodedMessages: {},
-    pendingSend: null,
-  };
+  const conversation = createConversationState();
   const cachedMessages: Array<{
     threadId: string;
     discordMessageId: string;
@@ -267,9 +184,8 @@ test("re-encoding the same message does not keep growing cover text", async () =
   const lengths: number[] = [];
 
   for (let index = 1; index <= 8; index += 1) {
-    const envelope = await encryptMessageEnvelope(plaintext, index, aliceMaterial);
-    const bitstring = await compressBitstringForTransport(serializeEnvelopeToBitstring(envelope));
-    const wordTarget = estimateWordTarget(bitstring.bitstring.length, 3);
+    const transportBitstring = encodePlaintextToTransportBitstring(plaintext);
+    const wordTarget = estimateWordTarget(transportBitstring.length, 3);
     const prompt = buildConversationPrompt({
       coverTopic: "coffee plans",
       contextWindow: buildBoundedConversationWindow(filterPromptMessages(cachedMessages, conversation)),
@@ -278,22 +194,12 @@ test("re-encoding the same message does not keep growing cover text", async () =
     });
     const visibleText = await encodeBitstringAsRankedText({
       prompt,
-      bitstring: bitstring.bitstring,
+      bitstring: transportBitstring,
       wordTarget,
     });
 
     lengths.push(visibleText.length);
-    conversation.confirmedEncodedMessages.push({
-      visibleText,
-      configId: "ghostscript-default-v1",
-      modelId: "xenova-distilgpt2-v1",
-      tokenizerId: "gpt2-tokenizer-v1",
-      transportBackend: "local-gpt2-top4-v1",
-      msgId: index,
-      estimatedWordTarget: wordTarget,
-      transportProtocolVersion: 1,
-      promptFingerprint: prompt,
-    });
+    conversation.confirmedEncodedMessages.push(createEncodedMessage(visibleText, index, wordTarget, prompt));
     cachedMessages.push({
       threadId: "thread-integration",
       discordMessageId: String(2000000000000000000n + BigInt(index)),
@@ -313,54 +219,8 @@ test("re-encoding the same message does not keep growing cover text", async () =
 });
 
 test("failed outgoing cover text in cached history is filtered so retries do not compound", async () => {
-  const alice = await generateIdentityBundle();
-  const bob = await generateIdentityBundle();
-  const aliceMaterial: SessionCryptoMaterial = {
-    sessionId: "session-integration",
-    threadId: "thread-integration",
-    localParticipantId: "alice",
-    counterpartParticipantId: "bob",
-    localTransportPrivateKey: alice.transportPrivateKey,
-    counterpartTransportPublicKey: bob.transportPublicKey,
-  };
-
   const plaintext = "same message";
-  const conversation = {
-    confirmedEncodedMessages: [] as Array<{
-      visibleText: string;
-      configId: "ghostscript-default-v1";
-      modelId: "xenova-distilgpt2-v1";
-      tokenizerId: "gpt2-tokenizer-v1";
-      transportBackend: "local-gpt2-top4-v1";
-      msgId: number;
-      estimatedWordTarget: number;
-      transportProtocolVersion: 1;
-      promptFingerprint: string;
-    }>,
-    decodedMessages: {},
-    pendingSend: null as
-      | {
-          threadId: string;
-          sessionId: string;
-          status: "failed";
-          expectedCoverText: string;
-          encodedMessage: {
-            visibleText: string;
-            configId: "ghostscript-default-v1";
-            modelId: "xenova-distilgpt2-v1";
-            tokenizerId: "gpt2-tokenizer-v1";
-            transportBackend: "local-gpt2-top4-v1";
-            msgId: number;
-            estimatedWordTarget: number;
-            transportProtocolVersion: 1;
-            promptFingerprint: string;
-          };
-          startedAt: number;
-          msgId: number;
-          error: string;
-        }
-      | null,
-  };
+  const conversation = createConversationState();
   const cachedMessages: Array<{
     threadId: string;
     discordMessageId: string;
@@ -372,9 +232,8 @@ test("failed outgoing cover text in cached history is filtered so retries do not
   const lengths: number[] = [];
 
   for (let index = 1; index <= 8; index += 1) {
-    const envelope = await encryptMessageEnvelope(plaintext, index, aliceMaterial);
-    const bitstring = await compressBitstringForTransport(serializeEnvelopeToBitstring(envelope));
-    const wordTarget = estimateWordTarget(bitstring.bitstring.length, 3);
+    const transportBitstring = encodePlaintextToTransportBitstring(plaintext);
+    const wordTarget = estimateWordTarget(transportBitstring.length, 3);
     const prompt = buildConversationPrompt({
       coverTopic: "coffee plans",
       contextWindow: buildBoundedConversationWindow(filterPromptMessages(cachedMessages, conversation)),
@@ -383,7 +242,7 @@ test("failed outgoing cover text in cached history is filtered so retries do not
     });
     const visibleText = await encodeBitstringAsRankedText({
       prompt,
-      bitstring: bitstring.bitstring,
+      bitstring: transportBitstring,
       wordTarget,
     });
 
@@ -393,32 +252,12 @@ test("failed outgoing cover text in cached history is filtered so retries do not
       sessionId: "session-integration",
       status: "failed",
       expectedCoverText: visibleText,
-      encodedMessage: {
-        visibleText,
-        configId: "ghostscript-default-v1",
-        modelId: "xenova-distilgpt2-v1",
-        tokenizerId: "gpt2-tokenizer-v1",
-        transportBackend: "local-gpt2-top4-v1",
-        msgId: index,
-        estimatedWordTarget: wordTarget,
-        transportProtocolVersion: 1,
-        promptFingerprint: prompt,
-      },
+      encodedMessage: createEncodedMessage(visibleText, index, wordTarget, prompt),
       startedAt: Date.now(),
       msgId: index,
       error: "Discord rejected the draft.",
     };
-    conversation.confirmedEncodedMessages.push({
-      visibleText,
-      configId: "ghostscript-default-v1",
-      modelId: "xenova-distilgpt2-v1",
-      tokenizerId: "gpt2-tokenizer-v1",
-      transportBackend: "local-gpt2-top4-v1",
-      msgId: index,
-      estimatedWordTarget: wordTarget,
-      transportProtocolVersion: 1,
-      promptFingerprint: prompt,
-    });
+    conversation.confirmedEncodedMessages.push(createEncodedMessage(visibleText, index, wordTarget, prompt));
     cachedMessages.push({
       threadId: "thread-integration",
       discordMessageId: String(3000000000000000000n + BigInt(index)),
@@ -437,6 +276,49 @@ test("failed outgoing cover text in cached history is filtered so retries do not
   assert.ok(maxLength <= firstLength + 300, `failed-retry cover text spiked too far: ${lengths.join(", ")}`);
 });
 
+function createConversationState() {
+  return {
+    confirmedEncodedMessages: [] as Array<{
+      visibleText: string;
+      configId: "ghostscript-default-v1";
+      modelId: "xenova-distilgpt2-v1";
+      tokenizerId: "gpt2-tokenizer-v1";
+      transportBackend: "local-gpt2-top4-v1";
+      msgId: number;
+      estimatedWordTarget: number;
+      transportProtocolVersion: 1;
+      promptFingerprint: string;
+    }>,
+    decodedMessages: {},
+    pendingSend: null as
+      | {
+          threadId: string;
+          sessionId: string;
+          status: "failed";
+          expectedCoverText: string;
+          encodedMessage: ReturnType<typeof createEncodedMessage>;
+          startedAt: number;
+          msgId: number;
+          error: string;
+        }
+      | null,
+  };
+}
+
+function createEncodedMessage(visibleText: string, msgId: number, estimatedWordTarget: number, promptFingerprint: string) {
+  return {
+    visibleText,
+    configId: "ghostscript-default-v1" as const,
+    modelId: "xenova-distilgpt2-v1",
+    tokenizerId: "gpt2-tokenizer-v1",
+    transportBackend: "local-gpt2-top4-v1",
+    msgId,
+    estimatedWordTarget,
+    transportProtocolVersion: 1 as const,
+    promptFingerprint,
+  };
+}
+
 function createHistoryMessage(
   discordMessageId: string,
   authorUsername: string,
@@ -451,4 +333,9 @@ function createHistoryMessage(
     text,
     direction,
   } as const;
+}
+
+function estimateWordTarget(payloadBitLength: number, bitsPerToken: number) {
+  const estimatedTokens = Math.max(12, Math.ceil(payloadBitLength / Math.max(bitsPerToken, 1)));
+  return Math.max(10, Math.ceil(estimatedTokens * 0.7));
 }

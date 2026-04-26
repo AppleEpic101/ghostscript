@@ -26,7 +26,7 @@ export function resolveCandidateDevices(): SupportedDevice[] {
 function getPlatformPreferredDevices(): SupportedDevice[] {
   switch (process.platform) {
     case "darwin":
-      return ["coreml", "cpu", "webgpu"];
+      return ["cpu", "coreml", "webgpu"];
     case "win32":
       return ["dml", "webgpu", "cpu"];
     case "linux":

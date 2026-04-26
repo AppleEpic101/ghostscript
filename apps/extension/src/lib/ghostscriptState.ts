@@ -33,8 +33,8 @@ export interface PendingSendState {
 }
 
 export interface DecodedGhostscriptMessageState {
-  status: "decoded" | "tampered";
-  plaintext: string | null;
+  status: "decoded";
+  plaintext: string;
   visibleText: string;
   encodedMessage: EncodedGhostscriptMessage | null;
   processedAt: string;
