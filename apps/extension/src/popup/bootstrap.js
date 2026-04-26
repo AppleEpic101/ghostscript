@@ -8,12 +8,10 @@ function renderLoadError() {
   const style = document.createElement("style");
   style.textContent = `
     :root {
-      color-scheme: light;
-      font-family: "Avenir Next", "Segoe UI", sans-serif;
-      background:
-        radial-gradient(circle at top left, rgba(237, 180, 88, 0.32), transparent 38%),
-        linear-gradient(180deg, #f7efe0 0%, #efe4d0 100%);
-      color: #1f2a30;
+      color-scheme: dark;
+      font-family: "gg sans", "Noto Sans", "Helvetica Neue", Helvetica, Arial, sans-serif;
+      background: #313338;
+      color: #dbdee1;
     }
 
     * {
@@ -30,22 +28,22 @@ function renderLoadError() {
     }
 
     .popup-load-error-card {
-      background: rgba(255, 251, 245, 0.9);
-      border: 1px solid rgba(109, 81, 38, 0.12);
-      border-radius: 18px;
+      background: #2b2d31;
+      border-radius: 8px;
       padding: 16px;
-      box-shadow: 0 20px 40px rgba(92, 69, 34, 0.08);
+      box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
     }
 
     .popup-load-error-card h1 {
       margin: 0 0 10px;
       font-size: 22px;
       line-height: 1.1;
+      color: #ffffff;
     }
 
     .popup-load-error-card p {
       margin: 0;
-      color: #5d4e40;
+      color: #b5bac1;
       font-size: 14px;
       line-height: 1.5;
     }
@@ -55,8 +53,11 @@ function renderLoadError() {
     }
 
     .popup-load-error-card code {
-      font-family: "SFMono-Regular", "SFMono-Regular", Consolas, monospace;
+      font-family: "SFMono-Regular", Consolas, monospace;
       font-size: 13px;
+      background: #1e1f22;
+      padding: 2px 4px;
+      border-radius: 3px;
     }
   `;
 
