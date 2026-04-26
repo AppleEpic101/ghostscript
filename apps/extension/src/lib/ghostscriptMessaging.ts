@@ -529,10 +529,6 @@ export function isMatchingPendingOutgoingMessage(
   message: GhostscriptThreadMessage,
   pendingSend: Pick<PendingSendState, "expectedCoverText" | "startedAt">,
 ) {
-  if (message.direction !== "outgoing") {
-    return false;
-  }
-
   const messageTimestamp = Date.parse(message.snowflakeTimestamp);
   if (
     Number.isFinite(messageTimestamp) &&
@@ -548,8 +544,15 @@ export function isMatchingPendingOutgoingMessage(
     stripTransportPayload(pendingSend.expectedCoverText),
   );
 
+  if (normalizedMessageText === normalizedExpectedText) {
+    return message.direction !== "incoming";
+  }
+
+  if (message.direction !== "outgoing") {
+    return false;
+  }
+
   return (
-    normalizedMessageText === normalizedExpectedText ||
     normalizedMessageText === normalizedExpectedVisibleText ||
     normalizedMessageVisibleText === normalizedExpectedVisibleText
   );
