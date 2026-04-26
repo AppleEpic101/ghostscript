@@ -1,9 +1,9 @@
-import sodium from "libsodium-wrappers-sumo";
+import nacl from "tweetnacl";
 import type { MessageEnvelope } from "@ghostscript/shared";
 
 const ENVELOPE_VERSION = 1 as const;
 const WRAPPED_IDENTITY_VERSION = 1 as const;
-const BASE64_VARIANT = sodium.base64_variants.URLSAFE_NO_PADDING;
+const WRAP_IV_BYTES = 12;
 
 export interface SessionCryptoMaterial {
   sessionId: string;
@@ -39,18 +39,17 @@ export interface PublicIdentityBundle {
 }
 
 export async function generateIdentityBundle(): Promise<LocalIdentityBundle> {
-  const sodiumInstance = await getSodium();
-  const transportKeys = sodiumInstance.crypto_box_keypair();
-  const signingKeys = sodiumInstance.crypto_sign_keypair();
-  const identityFingerprint = sodiumInstance.to_hex(
-    sodiumInstance.crypto_generichash(16, signingKeys.publicKey, null),
-  );
+  const transportKeys = nacl.box.keyPair();
+  const signingKeys = nacl.sign.keyPair();
+  const identityFingerprint = toHex(
+    await sha256(signingKeys.publicKey),
+  ).slice(0, 32);
 
   return {
     transportPublicKey: toBase64(transportKeys.publicKey),
-    transportPrivateKey: toBase64(transportKeys.privateKey),
+    transportPrivateKey: toBase64(transportKeys.secretKey),
     signingPublicKey: toBase64(signingKeys.publicKey),
-    signingPrivateKey: toBase64(signingKeys.privateKey),
+    signingPrivateKey: toBase64(signingKeys.secretKey),
     identityFingerprint,
   };
 }
@@ -64,98 +63,77 @@ export function toPublicIdentity(bundle: LocalIdentityBundle): PublicIdentityBun
 }
 
 export async function createWrappingSecret() {
-  const sodiumInstance = await getSodium();
-  return toBase64(sodiumInstance.randombytes_buf(32));
+  return toBase64(randomBytes(32));
 }
 
 export async function wrapIdentityBundle(
   bundle: LocalIdentityBundle,
   wrappingSecret: string,
 ): Promise<WrappedIdentityBundle> {
-  const sodiumInstance = await getSodium();
-  const salt = sodiumInstance.randombytes_buf(sodiumInstance.crypto_pwhash_SALTBYTES);
-  const nonce = sodiumInstance.randombytes_buf(sodiumInstance.crypto_aead_xchacha20poly1305_ietf_NPUBBYTES);
-  const wrappingKey = sodiumInstance.crypto_pwhash(
-    sodiumInstance.crypto_aead_xchacha20poly1305_ietf_KEYBYTES,
-    wrappingSecret,
-    salt,
-    sodiumInstance.crypto_pwhash_OPSLIMIT_INTERACTIVE,
-    sodiumInstance.crypto_pwhash_MEMLIMIT_INTERACTIVE,
-    sodiumInstance.crypto_pwhash_ALG_ARGON2ID13,
+  const salt = randomBytes(16);
+  const nonce = randomBytes(WRAP_IV_BYTES);
+  const wrappingKey = await derivePbkdf2Key(wrappingSecret, salt, ["encrypt"]);
+  const plaintext = new TextEncoder().encode(
+    JSON.stringify({
+      transportPrivateKey: bundle.transportPrivateKey,
+      signingPrivateKey: bundle.signingPrivateKey,
+    }),
+  );
+  const additionalData = new TextEncoder().encode(`ghostscript.identity.v${WRAPPED_IDENTITY_VERSION}`);
+  const ciphertext = await crypto.subtle.encrypt(
+    {
+      name: "AES-GCM",
+      iv: nonce,
+      additionalData,
+      tagLength: 128,
+    },
+    wrappingKey,
+    plaintext,
   );
 
-  try {
-    const plaintext = new TextEncoder().encode(
-      JSON.stringify({
-        transportPrivateKey: bundle.transportPrivateKey,
-        signingPrivateKey: bundle.signingPrivateKey,
-      }),
-    );
-    const additionalData = new TextEncoder().encode(`ghostscript.identity.v${WRAPPED_IDENTITY_VERSION}`);
-    const ciphertext = sodiumInstance.crypto_aead_xchacha20poly1305_ietf_encrypt(
-      plaintext,
-      additionalData,
-      null,
-      nonce,
-      wrappingKey,
-    );
-
-    return {
-      version: WRAPPED_IDENTITY_VERSION,
-      transportPublicKey: bundle.transportPublicKey,
-      signingPublicKey: bundle.signingPublicKey,
-      identityFingerprint: bundle.identityFingerprint,
-      wrapSalt: toBase64(salt),
-      wrapNonce: toBase64(nonce),
-      wrappedKeyMaterial: toBase64(ciphertext),
-    };
-  } finally {
-    sodiumInstance.memzero(wrappingKey);
-  }
+  return {
+    version: WRAPPED_IDENTITY_VERSION,
+    transportPublicKey: bundle.transportPublicKey,
+    signingPublicKey: bundle.signingPublicKey,
+    identityFingerprint: bundle.identityFingerprint,
+    wrapSalt: toBase64(salt),
+    wrapNonce: toBase64(nonce),
+    wrappedKeyMaterial: arrayBufferToBase64(ciphertext),
+  };
 }
 
 export async function unwrapIdentityBundle(
   wrappedIdentity: WrappedIdentityBundle,
   wrappingSecret: string,
 ): Promise<LocalIdentityBundle> {
-  const sodiumInstance = await getSodium();
-  const wrappingKey = sodiumInstance.crypto_pwhash(
-    sodiumInstance.crypto_aead_xchacha20poly1305_ietf_KEYBYTES,
-    wrappingSecret,
-    fromBase64(wrappedIdentity.wrapSalt),
-    sodiumInstance.crypto_pwhash_OPSLIMIT_INTERACTIVE,
-    sodiumInstance.crypto_pwhash_MEMLIMIT_INTERACTIVE,
-    sodiumInstance.crypto_pwhash_ALG_ARGON2ID13,
-  );
-
-  try {
-    const additionalData = new TextEncoder().encode(`ghostscript.identity.v${wrappedIdentity.version}`);
-    const plaintext = sodiumInstance.crypto_aead_xchacha20poly1305_ietf_decrypt(
-      null,
-      fromBase64(wrappedIdentity.wrappedKeyMaterial),
+  const wrappingKey = await derivePbkdf2Key(wrappingSecret, fromBase64(wrappedIdentity.wrapSalt), ["decrypt"]);
+  const additionalData = new TextEncoder().encode(`ghostscript.identity.v${wrappedIdentity.version}`);
+  const plaintext = await crypto.subtle.decrypt(
+    {
+      name: "AES-GCM",
+      iv: fromBase64(wrappedIdentity.wrapNonce),
       additionalData,
-      fromBase64(wrappedIdentity.wrapNonce),
-      wrappingKey,
-    );
-    const parsed = JSON.parse(new TextDecoder().decode(plaintext)) as {
-      transportPrivateKey?: string;
-      signingPrivateKey?: string;
-    };
+      tagLength: 128,
+    },
+    wrappingKey,
+    base64ToArrayBuffer(wrappedIdentity.wrappedKeyMaterial),
+  );
+  const parsed = JSON.parse(new TextDecoder().decode(plaintext)) as {
+    transportPrivateKey?: string;
+    signingPrivateKey?: string;
+  };
 
-    if (!parsed.transportPrivateKey || !parsed.signingPrivateKey) {
-      throw new Error("Wrapped identity record is missing private-key material.");
-    }
-
-    return {
-      transportPublicKey: wrappedIdentity.transportPublicKey,
-      transportPrivateKey: parsed.transportPrivateKey,
-      signingPublicKey: wrappedIdentity.signingPublicKey,
-      signingPrivateKey: parsed.signingPrivateKey,
-      identityFingerprint: wrappedIdentity.identityFingerprint,
-    };
-  } finally {
-    sodiumInstance.memzero(wrappingKey);
+  if (!parsed.transportPrivateKey || !parsed.signingPrivateKey) {
+    throw new Error("Wrapped identity record is missing private-key material.");
   }
+
+  return {
+    transportPublicKey: wrappedIdentity.transportPublicKey,
+    transportPrivateKey: parsed.transportPrivateKey,
+    signingPublicKey: wrappedIdentity.signingPublicKey,
+    signingPrivateKey: parsed.signingPrivateKey,
+    identityFingerprint: wrappedIdentity.identityFingerprint,
+  };
 }
 
 export async function encryptMessageEnvelope(
@@ -163,7 +141,6 @@ export async function encryptMessageEnvelope(
   msgId: number,
   material: SessionCryptoMaterial,
 ): Promise<MessageEnvelope> {
-  const sodiumInstance = await getSodium();
   const { key, nonce } = await deriveDirectionalSecrets(
     material,
     material.localParticipantId,
@@ -176,32 +153,30 @@ export async function encryptMessageEnvelope(
     material.counterpartParticipantId,
     msgId,
   );
-
-  try {
-    const ciphertext = sodiumInstance.crypto_aead_xchacha20poly1305_ietf_encrypt(
-      new TextEncoder().encode(plaintext),
+  const cryptoKey = await crypto.subtle.importKey("raw", key, "AES-GCM", false, ["encrypt"]);
+  const ciphertext = await crypto.subtle.encrypt(
+    {
+      name: "AES-GCM",
+      iv: nonce,
       additionalData,
-      null,
-      nonce,
-      key,
-    );
+      tagLength: 128,
+    },
+    cryptoKey,
+    new TextEncoder().encode(plaintext),
+  );
 
-    return {
-      v: ENVELOPE_VERSION,
-      senderId: material.localParticipantId,
-      msgId,
-      ciphertext: toBase64(ciphertext),
-    };
-  } finally {
-    sodiumInstance.memzero(key);
-  }
+  return {
+    v: ENVELOPE_VERSION,
+    senderId: material.localParticipantId,
+    msgId,
+    ciphertext: arrayBufferToBase64(ciphertext),
+  };
 }
 
 export async function decryptMessageEnvelope(
   envelope: MessageEnvelope,
   material: SessionCryptoMaterial,
 ): Promise<string> {
-  const sodiumInstance = await getSodium();
   const senderId = envelope.senderId;
   if (senderId !== material.counterpartParticipantId && senderId !== material.localParticipantId) {
     throw new Error("Envelope sender does not match the active Ghostscript pairing.");
@@ -209,20 +184,19 @@ export async function decryptMessageEnvelope(
 
   const { key, nonce } = await deriveDirectionalSecrets(material, senderId, material.localParticipantId, envelope.msgId);
   const additionalData = encodeAdditionalData(material.threadId, senderId, material.localParticipantId, envelope.msgId);
-
-  try {
-    const plaintext = sodiumInstance.crypto_aead_xchacha20poly1305_ietf_decrypt(
-      null,
-      fromBase64(envelope.ciphertext),
+  const cryptoKey = await crypto.subtle.importKey("raw", key, "AES-GCM", false, ["decrypt"]);
+  const plaintext = await crypto.subtle.decrypt(
+    {
+      name: "AES-GCM",
+      iv: nonce,
       additionalData,
-      nonce,
-      key,
-    );
+      tagLength: 128,
+    },
+    cryptoKey,
+    base64ToArrayBuffer(envelope.ciphertext),
+  );
 
-    return new TextDecoder().decode(plaintext);
-  } finally {
-    sodiumInstance.memzero(key);
-  }
+  return new TextDecoder().decode(plaintext);
 }
 
 async function deriveDirectionalSecrets(
@@ -235,14 +209,14 @@ async function deriveDirectionalSecrets(
   const key = await hkdfSha256(
     rootKey,
     `ghostscript:key:${senderId}->${recipientId}`,
-    "xchacha20poly1305",
+    "aes-gcm",
     32,
   );
   const nonceBase = await hkdfSha256(
     rootKey,
     `ghostscript:nonce:${senderId}->${recipientId}`,
-    "xchacha20poly1305",
-    24,
+    "aes-gcm",
+    12,
   );
 
   return {
@@ -252,8 +226,7 @@ async function deriveDirectionalSecrets(
 }
 
 async function deriveConversationRootKey(material: SessionCryptoMaterial) {
-  const sodiumInstance = await getSodium();
-  const sharedSecret = sodiumInstance.crypto_scalarmult(
+  const sharedSecret = nacl.scalarMult(
     fromBase64(material.localTransportPrivateKey),
     fromBase64(material.counterpartTransportPublicKey),
   );
@@ -269,12 +242,15 @@ async function deriveConversationRootKey(material: SessionCryptoMaterial) {
 }
 
 function deriveNonceFromBase(nonceBase: Uint8Array, msgId: number) {
-  const nonce = nonceBase.slice(0, 24);
-  const counter = new Uint8Array(8);
+  const nonce = Uint8Array.from(nonceBase);
+  const counter = new Uint8Array(nonce.length);
   const view = new DataView(counter.buffer);
-  view.setBigUint64(0, BigInt(msgId));
-  nonce.set(counter, 16);
-  return nonce;
+
+  if (nonce.length >= 8) {
+    view.setBigUint64(nonce.length - 8, BigInt(msgId));
+  }
+
+  return xorBytes(nonce, counter);
 }
 
 async function hkdfSha256(inputKeyMaterial: Uint8Array, salt: string, info: string, length: number) {
@@ -293,23 +269,85 @@ async function hkdfSha256(inputKeyMaterial: Uint8Array, salt: string, info: stri
   return new Uint8Array(bits);
 }
 
-function toBufferSource(bytes: Uint8Array) {
-  return Uint8Array.from(bytes);
+async function derivePbkdf2Key(secret: string, salt: Uint8Array, usages: KeyUsage[]) {
+  const keyMaterial = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(secret),
+    "PBKDF2",
+    false,
+    ["deriveKey"],
+  );
+
+  return crypto.subtle.deriveKey(
+    {
+      name: "PBKDF2",
+      salt: toBufferSource(salt),
+      iterations: 210_000,
+      hash: "SHA-256",
+    },
+    keyMaterial,
+    {
+      name: "AES-GCM",
+      length: 256,
+    },
+    false,
+    usages,
+  );
+}
+
+async function sha256(input: Uint8Array) {
+  return new Uint8Array(await crypto.subtle.digest("SHA-256", toBufferSource(input)));
 }
 
 function encodeAdditionalData(threadId: string, senderId: string, recipientId: string, msgId: number) {
   return new TextEncoder().encode(`ghostscript:v${ENVELOPE_VERSION}:${threadId}:${senderId}:${recipientId}:${msgId}`);
 }
 
+function xorBytes(left: Uint8Array, right: Uint8Array) {
+  const output = new Uint8Array(left.length);
+  for (let index = 0; index < left.length; index += 1) {
+    output[index] = left[index] ^ (right[index] ?? 0);
+  }
+  return output;
+}
+
+function randomBytes(length: number) {
+  const bytes = new Uint8Array(length);
+  crypto.getRandomValues(bytes);
+  return bytes;
+}
+
 function toBase64(input: Uint8Array) {
-  return sodium.to_base64(input, BASE64_VARIANT);
+  let binary = "";
+  for (const value of input) {
+    binary += String.fromCharCode(value);
+  }
+  return btoa(binary);
 }
 
 function fromBase64(input: string) {
-  return sodium.from_base64(input, BASE64_VARIANT);
+  const binary = atob(input);
+  const bytes = new Uint8Array(binary.length);
+
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+
+  return bytes;
 }
 
-async function getSodium() {
-  await sodium.ready;
-  return sodium;
+function arrayBufferToBase64(buffer: ArrayBuffer) {
+  return toBase64(new Uint8Array(buffer));
+}
+
+function base64ToArrayBuffer(value: string) {
+  return fromBase64(value).buffer;
+}
+
+function toHex(bytes: Uint8Array) {
+  return Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("");
+}
+
+function toBufferSource(bytes: Uint8Array) {
+  return Uint8Array.from(bytes);
 }
