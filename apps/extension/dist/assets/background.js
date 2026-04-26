@@ -1,0 +1,1 @@
+const e="ghostscript-extension-deploy-token",o="local-dev";t();chrome.runtime.onInstalled.addListener(()=>{console.info("Ghostscript extension installed")});async function t(){(await chrome.storage.local.get([e]))[e]!==o&&(await chrome.storage.local.clear(),await chrome.storage.local.set({[e]:o}))}

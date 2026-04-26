@@ -1,39 +1,19 @@
 import type {
-  ConfirmVerificationResponse,
-  ConversationState,
-  IdentityKey,
-  InviteSessionStatusResponse,
+  ActivePairingState,
+  ExtensionState,
+  PairedContact,
   PairingParticipant,
   PairingSession,
-  PairedContact,
-  TrustStatus,
-  VaultState,
-  VerificationState,
 } from "@ghostscript/shared";
-import { readStorageValue, removeStorageValue, writeStorageValue } from "./storage";
+import { readStorageValue, writeStorageValue } from "./storage";
 
 const STORAGE_KEY = "ghostscript-extension-state";
 
-export interface ActivePairingState {
-  inviteCode: string;
-  session: PairingSession;
-  localParticipant: PairingParticipant;
-  counterpart: PairingParticipant | null;
-  verification: VerificationState | null;
-}
-
-export interface ExtensionState {
-  identity: IdentityKey | null;
-  activePairing: ActivePairingState | null;
-  contacts: PairedContact[];
-  conversations: Record<string, ConversationState>;
-}
-
 const EMPTY_STATE: ExtensionState = {
-  identity: null,
+  profile: null,
   activePairing: null,
   contacts: [],
-  conversations: {},
+  drafts: null,
 };
 
 export async function readExtensionState(): Promise<ExtensionState> {
@@ -44,93 +24,107 @@ export async function writeExtensionState(state: ExtensionState) {
   await writeStorageValue(STORAGE_KEY, state);
 }
 
-export async function clearExtensionState() {
-  await removeStorageValue(STORAGE_KEY);
-}
-
-export async function storeIdentity(identity: IdentityKey) {
+export async function storeDiscordUsername(discordUsername: string) {
   const state = await readExtensionState();
-  state.identity = identity;
+  state.profile = { discordUsername };
   await writeExtensionState(state);
 }
 
-export async function getStoredIdentity() {
+export async function storeInviteDraft(inviteCode: string) {
   const state = await readExtensionState();
-  return state.identity;
-}
-
-export async function storeActivePairing(pairing: ActivePairingState) {
-  const state = await readExtensionState();
-  state.activePairing = pairing;
+  state.drafts = inviteCode ? { inviteCode } : null;
   await writeExtensionState(state);
 }
 
-export async function applyConfirmationResult(response: ConfirmVerificationResponse) {
+export async function clearInviteDraft() {
   const state = await readExtensionState();
+  state.drafts = null;
+  await writeExtensionState(state);
+}
 
-  if (!state.activePairing) {
-    throw new Error("No active pairing is available.");
-  }
+export async function storeCreatedInvite(params: {
+  inviteCode: string;
+  session: PairingSession;
+  localParticipant: PairingParticipant;
+  coverTopic: string;
+}) {
+  const state = await readExtensionState();
+  state.activePairing = {
+    inviteCode: params.inviteCode,
+    status: params.session.status,
+    session: params.session,
+    localParticipant: params.localParticipant,
+    counterpart: null,
+    defaultCoverTopic: params.coverTopic,
+  };
+  state.drafts = null;
+  await writeExtensionState(state);
+}
+
+export async function storeJoinedPairing(params: {
+  inviteCode: string;
+  session: PairingSession;
+  localParticipant: PairingParticipant;
+  counterpart: PairingParticipant;
+  coverTopic: string;
+}) {
+  const state = await readExtensionState();
+  const contact = buildContact(params.counterpart, params.session, params.coverTopic);
 
   state.activePairing = {
-    ...state.activePairing,
-    session: response.session,
-    localParticipant: response.participant,
-    counterpart: response.counterpart ?? state.activePairing.counterpart,
-    verification: response.verification,
+    inviteCode: params.inviteCode,
+    status: params.session.status,
+    session: params.session,
+    localParticipant: params.localParticipant,
+    counterpart: params.counterpart,
+    defaultCoverTopic: params.coverTopic,
   };
-
-  const counterpart = response.counterpart ?? state.activePairing.counterpart;
-
-  if (counterpart) {
-    upsertContactRecord(
-      state.contacts,
-      buildContactFromPairing(counterpart, response.verification, response.trustStatus),
-    );
-  }
-
+  upsertContactRecord(state.contacts, contact);
+  state.drafts = null;
   await writeExtensionState(state);
-  return state.activePairing;
 }
 
-export async function applyInviteSessionStatus(response: InviteSessionStatusResponse) {
+export async function applyInviteSessionSnapshot(params: {
+  session: PairingSession;
+  inviter: PairingParticipant | null;
+  joiner: PairingParticipant | null;
+  coverTopic: string | null;
+}) {
   const state = await readExtensionState();
   const activePairing = state.activePairing;
 
-  if (!activePairing) {
-    throw new Error("No active pairing is available.");
+  if (!activePairing || activePairing.inviteCode !== params.session.invite.code) {
+    return null;
   }
 
   const localParticipant =
-    activePairing.localParticipant.role === "inviter"
-      ? response.inviter
-      : response.joiner;
+    activePairing.localParticipant.role === "inviter" ? params.inviter : params.joiner;
   const counterpart =
-    activePairing.localParticipant.role === "inviter"
-      ? response.joiner
-      : response.inviter;
+    activePairing.localParticipant.role === "inviter" ? params.joiner : params.inviter;
 
   if (!localParticipant) {
-    throw new Error("The active pairing participant is missing from the latest session status.");
+    throw new Error("Active pairing participant is missing from the latest session snapshot.");
   }
 
   state.activePairing = {
     ...activePairing,
-    session: response.session,
+    status: params.session.status,
+    session: params.session,
     localParticipant,
-    counterpart: counterpart ?? activePairing.counterpart,
-    verification: response.verification ?? activePairing.verification,
+    counterpart,
+    defaultCoverTopic: params.coverTopic,
   };
 
-  if (counterpart && response.verification) {
-    upsertContactRecord(
-      state.contacts,
-      buildContactFromPairing(
-        counterpart,
-        response.verification,
-        response.verification.bothConfirmed ? "verified" : "paired-unverified",
-      ),
-    );
+  if (counterpart && params.coverTopic && params.session.status === "paired") {
+    upsertContactRecord(state.contacts, buildContact(counterpart, params.session, params.coverTopic));
+  }
+
+  if (params.session.status === "invalidated") {
+    for (const contact of state.contacts) {
+      if (contact.sessionId === params.session.id) {
+        contact.status = "invalidated";
+      }
+    }
   }
 
   await writeExtensionState(state);
@@ -139,102 +133,46 @@ export async function applyInviteSessionStatus(response: InviteSessionStatusResp
 
 export async function getPrimaryContact() {
   const state = await readExtensionState();
-
-  return (
-    state.contacts.find((contact) => contact.trustStatus === "verified") ??
-    state.contacts.find((contact) => contact.trustStatus === "paired-unverified") ??
-    null
-  );
+  return state.contacts.find((contact) => contact.status === "paired") ?? null;
 }
 
-export async function storeContact(contact: PairedContact) {
+export async function endLocalPairing(inviteCode: string) {
   const state = await readExtensionState();
-  upsertContactRecord(state.contacts, contact);
-  await writeExtensionState(state);
-}
 
-export async function getConversationState(
-  conversationId: string,
-  contact: PairedContact,
-): Promise<ConversationState> {
-  const state = await readExtensionState();
-  const existing = state.conversations[conversationId];
-
-  if (existing) {
-    return existing;
+  if (state.activePairing?.inviteCode === inviteCode) {
+    state.activePairing = {
+      ...state.activePairing,
+      status: "invalidated",
+      session: {
+        ...state.activePairing.session,
+        status: "invalidated",
+        invalidatedAt: new Date().toISOString(),
+      },
+    } satisfies ActivePairingState;
   }
 
-  const created: ConversationState = {
-    conversationId,
-    contactId: contact.id,
-    trustStatus: contact.trustStatus,
-    canDecrypt: contact.trustStatus === "verified",
-    lastMessageId: 0,
-    sendCounter: 0,
-    receiveWatermark: 0,
-    sharedSecretRef: contact.senderId,
-    lastProcessedDiscordMessageId: null,
-    locked: true,
-    imageStegoEnabled: false,
-  };
+  for (const contact of state.contacts) {
+    if (contact.inviteCode === inviteCode) {
+      contact.status = "invalidated";
+    }
+  }
 
-  state.conversations[conversationId] = created;
   await writeExtensionState(state);
-  return created;
 }
 
-export async function updateConversationState(
-  conversationId: string,
-  updater: (conversation: ConversationState) => ConversationState,
-) {
-  const state = await readExtensionState();
-  const current =
-    state.conversations[conversationId] ??
-    ({
-      conversationId,
-      contactId: "",
-      trustStatus: "unpaired",
-      canDecrypt: false,
-      lastMessageId: 0,
-      sendCounter: 0,
-      receiveWatermark: 0,
-      sharedSecretRef: undefined,
-      lastProcessedDiscordMessageId: null,
-      locked: true,
-      imageStegoEnabled: false,
-    } satisfies ConversationState);
-
-  state.conversations[conversationId] = updater(current);
-  await writeExtensionState(state);
-  return state.conversations[conversationId];
-}
-
-export async function getVaultState(): Promise<VaultState> {
-  const identity = await getStoredIdentity();
-  return identity ? "locked" : "uninitialized";
-}
-
-export function buildContactFromPairing(
-  participant: PairingParticipant,
-  verification: VerificationState,
-  trustStatus: Extract<TrustStatus, "paired-unverified" | "verified">,
-): PairedContact {
+function buildContact(participant: PairingParticipant, session: PairingSession, coverTopic: string): PairedContact {
   return {
-    id: participant.sessionId,
+    id: participant.id,
+    sessionId: participant.sessionId,
     displayName: participant.displayName,
-    discordHandle: participant.identity.email ?? participant.displayName,
-    participantId: participant.id,
-    publicKey: participant.publicKey,
-    senderId: `ed25519:${participant.publicKey.fingerprint.replace(/\s+/g, "").toLowerCase().slice(0, 8)}`,
-    verifiedAt: verification.verifiedAt,
-    trustStatus,
-    safetyNumber: verification.safetyNumber,
-    hashWords: verification.hashWords,
-    pairedAt: verification.verifiedAt ?? participant.createdAt,
+    pairedAt: session.joinedAt ?? session.createdAt,
+    defaultCoverTopic: coverTopic,
+    inviteCode: session.invite.code,
+    status: session.status === "invalidated" ? "invalidated" : "paired",
   };
 }
 
-export function upsertContactRecord(contacts: PairedContact[], nextContact: PairedContact) {
+function upsertContactRecord(contacts: PairedContact[], nextContact: PairedContact) {
   const existingIndex = contacts.findIndex((contact) => contact.id === nextContact.id);
 
   if (existingIndex === -1) {

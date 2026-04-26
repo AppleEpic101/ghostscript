@@ -1,552 +1,215 @@
-import { createHash, randomInt } from "node:crypto";
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { randomUUID } from "node:crypto";
 import type {
-  ConfirmVerificationRequest,
-  ConfirmVerificationResponse,
   CreateInviteRequest,
   CreateInviteResponse,
   InviteSessionStatusResponse,
   JoinInviteRequest,
   JoinInviteResponse,
-  PairingIdentity,
   PairingParticipant,
   PairingSession,
-  PairingSessionStatus,
-  ParticipantRole,
-  PublicKeyBundle,
-  PublicKeyLookupResponse,
   ResetPairingRequest,
   ResetPairingResponse,
-  VerificationState,
 } from "@ghostscript/shared";
 
-const HASH_WORDS = [
-  "cedar",
-  "orbit",
-  "signal",
-  "cobalt",
-  "harbor",
-  "ember",
-  "atlas",
-  "iris",
-  "topaz",
-  "lumen",
-  "solace",
-  "echo",
-  "vector",
-  "zephyr",
-  "marble",
-  "fern",
-];
+const INVITE_TTL_MS = 15 * 60 * 1000;
 
-interface PairingSessionRow {
-  id: string;
-  invite_code: string;
-  status: PairingSessionStatus;
-  inviter_id: string | null;
-  joiner_id: string | null;
-  expires_at: string;
-  joined_at: string | null;
-  verified_at: string | null;
-  invalidated_at: string | null;
-  created_at: string;
-}
-
-interface PairingParticipantRow {
-  id: string;
-  session_id: string;
-  role: ParticipantRole;
-  display_name: string;
-  identity_provider: PairingIdentity["provider"];
-  identity_subject: string;
-  identity_email: string | null;
-  identity_email_verified: boolean;
-  public_key_key_id: string;
-  public_key_algorithm: PublicKeyBundle["algorithm"];
-  public_key_value: string;
-  public_key_fingerprint: string;
-  public_key_created_at: string;
-  confirmed_at: string | null;
-  created_at: string;
+interface PairingRecord {
+  session: PairingSession;
+  inviter: PairingParticipant;
+  joiner: PairingParticipant | null;
+  coverTopic: string;
 }
 
 export class ApiError extends Error {
-  statusCode: number;
-
-  constructor(statusCode: number, message: string) {
+  constructor(
+    readonly statusCode: number,
+    message: string,
+  ) {
     super(message);
-    this.statusCode = statusCode;
   }
 }
 
 export class PairingService {
-  private readonly supabase: SupabaseClient;
-  private readonly appBaseUrl: string;
+  private readonly records = new Map<string, PairingRecord>();
 
-  constructor(options: {
-    appBaseUrl: string;
-    supabaseKey: string;
-    supabaseUrl: string;
-  }) {
-    this.appBaseUrl = options.appBaseUrl.replace(/\/$/, "");
-    this.supabase = createClient(options.supabaseUrl, options.supabaseKey, {
-      auth: {
-        autoRefreshToken: false,
-        persistSession: false,
-      },
-    });
-  }
-
-  async createInvite(request: CreateInviteRequest): Promise<CreateInviteResponse> {
+  createInvite(request: CreateInviteRequest): CreateInviteResponse {
     validateDisplayName(request.inviterName, "inviterName");
-    validateIdentity(request.inviterIdentity);
-    validatePublicKey(request.publicKey);
+    validateCoverTopic(request.coverTopic);
 
-    const inviteCode = await this.generateInviteCode();
-    const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString();
+    const createdAt = new Date().toISOString();
+    const code = this.generateInviteCode();
+    const sessionId = randomUUID();
+    const inviterId = randomUUID();
+    const expiresAt = new Date(Date.now() + INVITE_TTL_MS).toISOString();
 
-    const { data: sessionRow, error: sessionError } = await this.supabase
-      .from("pairing_sessions")
-      .insert({
-        invite_code: inviteCode,
-        status: "pending",
-        expires_at: expiresAt,
-      })
-      .select("*")
-      .single<PairingSessionRow>();
+    const session: PairingSession = {
+      id: sessionId,
+      invite: {
+        code,
+        format: "4-digit",
+        expiresAt,
+        consumed: false,
+      },
+      status: "invite-pending",
+      inviterId,
+      joinerId: null,
+      createdAt,
+      joinedAt: null,
+      invalidatedAt: null,
+    };
 
-    if (sessionError || !sessionRow) {
-      throw new ApiError(500, "Unable to create pairing session.");
-    }
+    const inviter: PairingParticipant = {
+      id: inviterId,
+      sessionId,
+      role: "inviter",
+      displayName: request.inviterName.trim(),
+      createdAt,
+    };
 
-    const { data: inviterRow, error: inviterError } = await this.supabase
-      .from("pairing_participants")
-      .insert(
-        this.toParticipantInsert(sessionRow.id, "inviter", request.inviterName, request.inviterIdentity, request.publicKey),
-      )
-      .select("*")
-      .single<PairingParticipantRow>();
-
-    if (inviterError || !inviterRow) {
-      throw new ApiError(500, "Unable to create inviter record.");
-    }
-
-    const { data: updatedSession, error: updateSessionError } = await this.supabase
-      .from("pairing_sessions")
-      .update({
-        inviter_id: inviterRow.id,
-      })
-      .eq("id", sessionRow.id)
-      .select("*")
-      .single<PairingSessionRow>();
-
-    if (updateSessionError || !updatedSession) {
-      throw new ApiError(500, "Unable to finalize pairing session.");
-    }
+    this.records.set(code, {
+      session,
+      inviter,
+      joiner: null,
+      coverTopic: request.coverTopic.trim(),
+    });
 
     return {
-      session: mapSession(updatedSession),
-      inviter: mapParticipant(inviterRow),
-      inviteUrl: `${this.appBaseUrl}/join?code=${inviteCode}`,
+      session,
+      inviter,
+      coverTopic: request.coverTopic.trim(),
     };
   }
 
-  async joinInvite(inviteCode: string, request: JoinInviteRequest): Promise<JoinInviteResponse> {
+  joinInvite(inviteCode: string, request: JoinInviteRequest): JoinInviteResponse {
     validateInviteCode(inviteCode);
     validateDisplayName(request.joinerName, "joinerName");
-    validateIdentity(request.joinerIdentity);
-    validatePublicKey(request.publicKey);
 
-    const sessionBundle = await this.getSessionBundleByInviteCode(inviteCode);
-    const session = sessionBundle.session;
-    assertJoinable(session);
+    const record = this.getRequiredRecord(inviteCode);
+    assertJoinable(record.session);
 
-    if (sessionBundle.joiner) {
+    if (record.joiner) {
       throw new ApiError(409, "This invite has already been used.");
     }
 
-    const { data: joinerRow, error: joinerError } = await this.supabase
-      .from("pairing_participants")
-      .insert(
-        this.toParticipantInsert(
-          session.id,
-          "joiner",
-          request.joinerName,
-          request.joinerIdentity,
-          request.publicKey,
-        ),
-      )
-      .select("*")
-      .single<PairingParticipantRow>();
-
-    if (joinerError || !joinerRow) {
-      throw new ApiError(500, "Unable to attach the joiner to this invite.");
-    }
-
+    const joinerId = randomUUID();
     const joinedAt = new Date().toISOString();
-    const { data: updatedSession, error: updateSessionError } = await this.supabase
-      .from("pairing_sessions")
-      .update({
-        joiner_id: joinerRow.id,
-        joined_at: joinedAt,
-        status: "paired-unverified",
-      })
-      .eq("id", session.id)
-      .is("joiner_id", null)
-      .select("*")
-      .single<PairingSessionRow>();
+    const session: PairingSession = {
+      ...record.session,
+      status: "paired",
+      joinerId,
+      joinedAt,
+      invite: {
+        ...record.session.invite,
+        consumed: true,
+      },
+    };
 
-    if (updateSessionError || !updatedSession) {
-      throw new ApiError(409, "This invite was claimed by another joiner.");
-    }
+    const joiner: PairingParticipant = {
+      id: joinerId,
+      sessionId: record.session.id,
+      role: "joiner",
+      displayName: request.joinerName.trim(),
+      createdAt: joinedAt,
+    };
 
-    const inviter = sessionBundle.inviter;
+    const nextRecord: PairingRecord = {
+      ...record,
+      session,
+      joiner,
+    };
 
-    if (!inviter) {
-      throw new ApiError(500, "The invite is missing its inviter record.");
-    }
+    this.records.set(inviteCode, nextRecord);
 
     return {
-      session: mapSession(updatedSession),
-      inviter: mapParticipant(inviter),
-      joiner: mapParticipant(joinerRow),
-      verification: deriveVerificationState(inviter, joinerRow, updatedSession.verified_at),
+      session,
+      inviter: record.inviter,
+      joiner,
+      coverTopic: record.coverTopic,
     };
   }
 
-  async getInviteSessionStatus(inviteCode: string): Promise<InviteSessionStatusResponse> {
+  getInviteSessionStatus(inviteCode: string): InviteSessionStatusResponse {
     validateInviteCode(inviteCode);
 
-    const { session, inviter, joiner } = await this.getSessionBundleByInviteCode(inviteCode);
-    const verification =
-      inviter && joiner
-        ? deriveVerificationState(inviter, joiner, session.verified_at)
-        : null;
+    const record = this.getRequiredRecord(inviteCode);
+    const nextRecord = this.expireIfNeeded(record);
 
     return {
-      session: mapSession(session),
-      inviter: inviter ? mapParticipant(inviter) : null,
-      joiner: joiner ? mapParticipant(joiner) : null,
-      verification,
+      session: nextRecord.session,
+      inviter: nextRecord.inviter,
+      joiner: nextRecord.joiner,
+      coverTopic: nextRecord.coverTopic,
     };
   }
 
-  async confirmInvite(
-    inviteCode: string,
-    request: ConfirmVerificationRequest,
-  ): Promise<ConfirmVerificationResponse> {
-    validateInviteCode(inviteCode);
+  resetPairing(request: ResetPairingRequest): ResetPairingResponse {
+    validateInviteCode(request.inviteCode);
 
-    const sessionBundle = await this.getSessionBundleByInviteCode(inviteCode);
-    const { inviter, joiner, session } = sessionBundle;
-
-    if (!inviter || !joiner) {
-      throw new ApiError(409, "Both participants must join before verification can start.");
-    }
-
-    assertConfirmable(session);
-
-    const participant = [inviter, joiner].find(
-      (candidate) => candidate.id === request.participantId,
-    );
-
-    if (!participant) {
-      throw new ApiError(404, "Participant not found for this invite.");
-    }
-
-    let confirmedParticipant = participant;
-
-    if (!participant.confirmed_at) {
-      const { data: updatedParticipant, error: updateParticipantError } = await this.supabase
-        .from("pairing_participants")
-        .update({
-          confirmed_at: new Date().toISOString(),
-        })
-        .eq("id", participant.id)
-        .select("*")
-        .single<PairingParticipantRow>();
-
-      if (updateParticipantError || !updatedParticipant) {
-        throw new ApiError(500, "Unable to record pairing confirmation.");
-      }
-
-      confirmedParticipant = updatedParticipant;
-    }
-
-    const nextInviter = confirmedParticipant.role === "inviter" ? confirmedParticipant : inviter;
-    const nextJoiner = confirmedParticipant.role === "joiner" ? confirmedParticipant : joiner;
-    const bothConfirmed = Boolean(nextInviter.confirmed_at && nextJoiner.confirmed_at);
-
-    let nextSession = session;
-
-    if (bothConfirmed && session.status !== "verified") {
-      const verifiedAt = new Date().toISOString();
-      const { data: verifiedSession, error: verifyError } = await this.supabase
-        .from("pairing_sessions")
-        .update({
-          status: "verified",
-          verified_at: verifiedAt,
-        })
-        .eq("id", session.id)
-        .select("*")
-        .single<PairingSessionRow>();
-
-      if (verifyError || !verifiedSession) {
-        throw new ApiError(500, "Unable to finalize pairing verification.");
-      }
-
-      nextSession = verifiedSession;
-    }
-
-    const verification = deriveVerificationState(
-      nextInviter,
-      nextJoiner,
-      nextSession.verified_at,
-    );
-    const counterpart =
-      confirmedParticipant.role === "inviter"
-        ? mapParticipant(nextJoiner)
-        : mapParticipant(nextInviter);
-
-    return {
-      session: mapSession(nextSession),
-      participant: mapParticipant(confirmedParticipant),
-      counterpart,
-      verification,
-      trustStatus: verification.bothConfirmed ? "verified" : "paired-unverified",
+    const record = this.getRequiredRecord(request.inviteCode);
+    const session: PairingSession = {
+      ...record.session,
+      status: "invalidated",
+      invalidatedAt: new Date().toISOString(),
     };
+
+    this.records.set(request.inviteCode, {
+      ...record,
+      session,
+    });
+
+    return { session };
   }
 
-  async lookupPublicKey(participantId: string): Promise<PublicKeyLookupResponse> {
-    const { data: participantRow, error: participantError } = await this.supabase
-      .from("pairing_participants")
-      .select("*")
-      .eq("id", participantId)
-      .single<PairingParticipantRow>();
+  private getRequiredRecord(inviteCode: string) {
+    const record = this.records.get(inviteCode);
 
-    if (participantError || !participantRow) {
-      throw new ApiError(404, "Participant not found.");
+    if (!record) {
+      throw new ApiError(404, "Invite code not found.");
     }
 
-    const { data: sessionRow, error: sessionError } = await this.supabase
-      .from("pairing_sessions")
-      .select("*")
-      .eq("id", participantRow.session_id)
-      .single<PairingSessionRow>();
-
-    if (sessionError || !sessionRow) {
-      throw new ApiError(404, "Pairing session not found.");
-    }
-
-    return {
-      participantId: participantRow.id,
-      sessionId: sessionRow.id,
-      sessionStatus: sessionRow.status,
-      publicKey: mapPublicKey(participantRow),
-    };
+    return this.expireIfNeeded(record);
   }
 
-  async resetPairing(request: ResetPairingRequest): Promise<ResetPairingResponse> {
-    let sessionRow: PairingSessionRow | null = null;
-
-    if (request.inviteCode) {
-      sessionRow = await this.getRequiredSessionByInviteCode(request.inviteCode);
-    } else if (request.participantId) {
-      const { data: participantRow, error: participantError } = await this.supabase
-        .from("pairing_participants")
-        .select("*")
-        .eq("id", request.participantId)
-        .single<PairingParticipantRow>();
-
-      if (participantError || !participantRow) {
-        throw new ApiError(404, "Participant not found.");
-      }
-
-      const { data: linkedSession, error: sessionError } = await this.supabase
-        .from("pairing_sessions")
-        .select("*")
-        .eq("id", participantRow.session_id)
-        .single<PairingSessionRow>();
-
-      if (sessionError || !linkedSession) {
-        throw new ApiError(404, "Pairing session not found.");
-      }
-
-      sessionRow = linkedSession;
-    } else {
-      throw new ApiError(400, "Provide either inviteCode or participantId.");
+  private expireIfNeeded(record: PairingRecord) {
+    if (record.session.status === "invalidated") {
+      return record;
     }
 
-    if (!sessionRow) {
-      throw new ApiError(404, "Pairing session not found.");
+    if (new Date(record.session.invite.expiresAt).getTime() > Date.now()) {
+      return record;
     }
 
-    const { data: updatedSession, error: updateError } = await this.supabase
-      .from("pairing_sessions")
-      .update({
+    const expiredRecord: PairingRecord = {
+      ...record,
+      session: {
+        ...record.session,
         status: "invalidated",
-        invalidated_at: new Date().toISOString(),
-      })
-      .eq("id", sessionRow.id)
-      .select("*")
-      .single<PairingSessionRow>();
-
-    if (updateError || !updatedSession) {
-      throw new ApiError(500, "Unable to invalidate pairing session.");
-    }
-
-    return {
-      session: mapSession(updatedSession),
+        invalidatedAt: record.session.invalidatedAt ?? new Date().toISOString(),
+      },
     };
+
+    this.records.set(record.session.invite.code, expiredRecord);
+    return expiredRecord;
   }
 
-  private async generateInviteCode(): Promise<string> {
-    for (let attempt = 0; attempt < 8; attempt += 1) {
-      const inviteCode = `GHOST-${randomInt(1000, 10000)}`;
-      const existing = await this.getOptionalSessionByInviteCode(inviteCode);
+  private generateInviteCode() {
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      const code = Math.floor(Math.random() * 10_000)
+        .toString()
+        .padStart(4, "0");
 
-      if (!existing) {
-        return inviteCode;
+      if (!this.records.has(code)) {
+        return code;
       }
     }
 
     throw new ApiError(500, "Unable to mint a unique invite code.");
   }
-
-  private async getSessionBundleByInviteCode(inviteCode: string) {
-    const session = await this.getRequiredSessionByInviteCode(inviteCode);
-    const { data: participantRows, error: participantError } = await this.supabase
-      .from("pairing_participants")
-      .select("*")
-      .eq("session_id", session.id)
-      .returns<PairingParticipantRow[]>();
-
-    if (participantError) {
-      throw new ApiError(500, "Unable to load pairing participants.");
-    }
-
-    return {
-      session,
-      inviter: participantRows?.find((participant) => participant.role === "inviter") ?? null,
-      joiner: participantRows?.find((participant) => participant.role === "joiner") ?? null,
-    };
-  }
-
-  private async getRequiredSessionByInviteCode(inviteCode: string): Promise<PairingSessionRow> {
-    const data = await this.getOptionalSessionByInviteCode(inviteCode);
-
-    if (!data) {
-      throw new ApiError(404, "Invite code not found.");
-    }
-
-    return data;
-  }
-
-  private async getOptionalSessionByInviteCode(inviteCode: string): Promise<PairingSessionRow | null> {
-    const { data, error } = await this.supabase
-      .from("pairing_sessions")
-      .select("*")
-      .eq("invite_code", inviteCode)
-      .maybeSingle<PairingSessionRow>();
-
-    if (error) {
-      throw new ApiError(500, "Unable to load pairing session.");
-    }
-
-    return data;
-  }
-
-  private toParticipantInsert(
-    sessionId: string,
-    role: ParticipantRole,
-    displayName: string,
-    identity: PairingIdentity,
-    publicKey: PublicKeyBundle,
-  ) {
-    return {
-      session_id: sessionId,
-      role,
-      display_name: displayName,
-      identity_provider: identity.provider,
-      identity_subject: identity.subject,
-      identity_email: identity.email ?? null,
-      identity_email_verified: Boolean(identity.emailVerified),
-      public_key_key_id: publicKey.keyId,
-      public_key_algorithm: publicKey.algorithm,
-      public_key_value: publicKey.publicKey,
-      public_key_fingerprint: publicKey.fingerprint,
-      public_key_created_at: publicKey.createdAt,
-    };
-  }
-}
-
-function mapSession(row: PairingSessionRow): PairingSession {
-  return {
-    id: row.id,
-    inviteCode: row.invite_code,
-    status: row.status,
-    inviterId: row.inviter_id ?? "",
-    joinerId: row.joiner_id,
-    expiresAt: row.expires_at,
-    joinedAt: row.joined_at,
-    verifiedAt: row.verified_at,
-    invalidatedAt: row.invalidated_at,
-    createdAt: row.created_at,
-  };
-}
-
-function mapPublicKey(row: PairingParticipantRow): PublicKeyBundle {
-  return {
-    keyId: row.public_key_key_id,
-    algorithm: row.public_key_algorithm,
-    publicKey: row.public_key_value,
-    fingerprint: row.public_key_fingerprint,
-    createdAt: row.public_key_created_at,
-  };
-}
-
-function mapParticipant(row: PairingParticipantRow): PairingParticipant {
-  return {
-    id: row.id,
-    sessionId: row.session_id,
-    role: row.role,
-    displayName: row.display_name,
-    identity: {
-      provider: row.identity_provider,
-      subject: row.identity_subject,
-      email: row.identity_email ?? undefined,
-      emailVerified: row.identity_email_verified,
-    },
-    publicKey: mapPublicKey(row),
-    confirmedAt: row.confirmed_at,
-    createdAt: row.created_at,
-  };
-}
-
-function deriveVerificationState(
-  inviter: PairingParticipantRow,
-  joiner: PairingParticipantRow,
-  verifiedAt: string | null,
-): VerificationState {
-  const material = [inviter.public_key_value, joiner.public_key_value].sort().join(":");
-  const digest = createHash("sha256").update(material).digest();
-  const digits = Array.from(digest.slice(0, 12), (value) => (value % 10).toString()).join("");
-  const groupedDigits = digits.match(/.{1,4}/g)?.join(" ") ?? digits;
-  const hashWords = Array.from(digest.slice(12, 16), (value) => HASH_WORDS[value % HASH_WORDS.length]);
-
-  return {
-    safetyNumber: groupedDigits,
-    hashWords,
-    inviterConfirmedAt: inviter.confirmed_at,
-    joinerConfirmedAt: joiner.confirmed_at,
-    bothConfirmed: Boolean(inviter.confirmed_at && joiner.confirmed_at),
-    verifiedAt,
-  };
 }
 
 function validateInviteCode(inviteCode: string) {
-  if (!/^[A-Z0-9-]{6,20}$/.test(inviteCode)) {
-    throw new ApiError(400, "Invite code format is invalid.");
+  if (!/^\d{4}$/.test(inviteCode.trim())) {
+    throw new ApiError(400, "Invite codes must be 4 digits.");
   }
 }
 
@@ -556,46 +219,22 @@ function validateDisplayName(value: string, fieldName: string) {
   }
 }
 
-function validateIdentity(identity: PairingIdentity) {
-  if (!identity.subject.trim()) {
-    throw new ApiError(400, "Identity subject is required.");
+function validateCoverTopic(value: string) {
+  if (!value.trim()) {
+    throw new ApiError(400, "coverTopic is required.");
   }
 }
 
-function validatePublicKey(publicKey: PublicKeyBundle) {
-  if (!publicKey.publicKey.trim() || !publicKey.fingerprint.trim() || !publicKey.keyId.trim()) {
-    throw new ApiError(400, "Public key payload is incomplete.");
-  }
-}
-
-function assertJoinable(session: PairingSessionRow) {
-  if (session.invalidated_at || session.status === "invalidated") {
-    throw new ApiError(409, "This pairing session has been invalidated.");
+function assertJoinable(session: PairingSession) {
+  if (session.status === "invalidated" || session.invalidatedAt) {
+    throw new ApiError(409, "This invite is no longer valid.");
   }
 
-  if (new Date(session.expires_at).getTime() <= Date.now()) {
+  if (new Date(session.invite.expiresAt).getTime() <= Date.now()) {
     throw new ApiError(410, "This invite has expired.");
   }
 
-  if (session.joiner_id) {
+  if (session.joinerId) {
     throw new ApiError(409, "This invite has already been used.");
-  }
-
-  if (session.status === "verified") {
-    throw new ApiError(409, "This invite has already been verified.");
-  }
-}
-
-function assertConfirmable(session: PairingSessionRow) {
-  if (session.invalidated_at || session.status === "invalidated") {
-    throw new ApiError(409, "This pairing session has been invalidated.");
-  }
-
-  if (new Date(session.expires_at).getTime() <= Date.now()) {
-    throw new ApiError(410, "This invite has expired.");
-  }
-
-  if (session.status === "pending") {
-    throw new ApiError(409, "Both participants must join before verification can start.");
   }
 }

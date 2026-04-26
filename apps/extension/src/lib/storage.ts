@@ -11,12 +11,7 @@ export async function readStorageValue<T>(key: string): Promise<T | null> {
 
   if (!storage) {
     const rawValue = window.localStorage.getItem(key);
-
-    if (!rawValue) {
-      return null;
-    }
-
-    return JSON.parse(rawValue) as T;
+    return rawValue ? (JSON.parse(rawValue) as T) : null;
   }
 
   return new Promise<T | null>((resolve, reject) => {
@@ -41,26 +36,6 @@ export async function writeStorageValue<T>(key: string, value: T) {
 
   await new Promise<void>((resolve, reject) => {
     storage.set({ [key]: value }, () => {
-      if (chrome.runtime.lastError) {
-        reject(new Error(chrome.runtime.lastError.message));
-        return;
-      }
-
-      resolve();
-    });
-  });
-}
-
-export async function removeStorageValue(key: string) {
-  const storage = getChromeStorage();
-
-  if (!storage) {
-    window.localStorage.removeItem(key);
-    return;
-  }
-
-  await new Promise<void>((resolve, reject) => {
-    storage.remove(key, () => {
       if (chrome.runtime.lastError) {
         reject(new Error(chrome.runtime.lastError.message));
         return;

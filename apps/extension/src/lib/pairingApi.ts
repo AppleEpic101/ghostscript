@@ -1,6 +1,4 @@
 import type {
-  ConfirmVerificationRequest,
-  ConfirmVerificationResponse,
   CreateInviteRequest,
   CreateInviteResponse,
   InviteSessionStatusResponse,
@@ -13,39 +11,22 @@ import type {
 const DEFAULT_PAIRING_API_BASE_URL = "http://localhost:8787";
 
 function getPairingApiBaseUrl() {
-  return (
-    import.meta.env.VITE_PAIRING_API_BASE_URL?.trim().replace(/\/$/, "") ??
-    DEFAULT_PAIRING_API_BASE_URL
-  );
+  return import.meta.env.VITE_PAIRING_API_BASE_URL?.trim().replace(/\/$/, "") ?? DEFAULT_PAIRING_API_BASE_URL;
 }
 
-export async function createInvite(request: CreateInviteRequest) {
+export function createInvite(request: CreateInviteRequest) {
   return requestJson<CreateInviteResponse>("/pairing/invites", request);
 }
 
-export async function getInviteSessionStatus(inviteCode: string) {
-  return requestJson<InviteSessionStatusResponse>(
-    `/pairing/invites/${encodeURIComponent(inviteCode)}`,
-    undefined,
-    "GET",
-  );
+export function joinInvite(inviteCode: string, request: JoinInviteRequest) {
+  return requestJson<JoinInviteResponse>(`/pairing/invites/${encodeURIComponent(inviteCode)}/join`, request);
 }
 
-export async function joinInvite(inviteCode: string, request: JoinInviteRequest) {
-  return requestJson<JoinInviteResponse>(
-    `/pairing/invites/${encodeURIComponent(inviteCode)}/join`,
-    request,
-  );
+export function getInviteSessionStatus(inviteCode: string) {
+  return requestJson<InviteSessionStatusResponse>(`/pairing/invites/${encodeURIComponent(inviteCode)}`, undefined, "GET");
 }
 
-export async function confirmInvite(inviteCode: string, request: ConfirmVerificationRequest) {
-  return requestJson<ConfirmVerificationResponse>(
-    `/pairing/invites/${encodeURIComponent(inviteCode)}/confirm`,
-    request,
-  );
-}
-
-export async function resetPairing(request: ResetPairingRequest) {
+export function resetPairing(request: ResetPairingRequest) {
   return requestJson<ResetPairingResponse>("/pairing/reset", request);
 }
 
@@ -55,18 +36,13 @@ async function requestJson<T>(path: string, body?: unknown, method = "POST"): Pr
   try {
     response = await fetch(`${getPairingApiBaseUrl()}${path}`, {
       method,
-      headers:
-        body === undefined
-          ? undefined
-          : {
-              "Content-Type": "application/json",
-            },
+      headers: body === undefined ? undefined : { "Content-Type": "application/json" },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
   } catch (error) {
     if (error instanceof TypeError) {
       throw new Error(
-        `Unable to reach the pairing API at ${getPairingApiBaseUrl()}. Confirm the local stack is running and reload the unpacked extension if its API URL changed.`,
+        `Unable to reach the pairing API at ${getPairingApiBaseUrl()}. Confirm the local API is running and reload the extension if its URL changed.`,
       );
     }
 

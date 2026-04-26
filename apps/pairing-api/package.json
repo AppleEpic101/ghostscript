@@ -10,8 +10,7 @@
     "start": "node dist/index.js"
   },
   "dependencies": {
-    "@ghostscript/shared": "workspace:*",
-    "@supabase/supabase-js": "^2.57.4"
+    "@ghostscript/shared": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^24.7.2",

@@ -1,40 +1,14 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { existsSync, readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
 import { URL } from "node:url";
-import { fileURLToPath } from "node:url";
 import type {
-  ConfirmVerificationRequest,
   CreateInviteRequest,
   JoinInviteRequest,
   ResetPairingRequest,
 } from "@ghostscript/shared";
 import { ApiError, PairingService } from "./service";
 
-loadLocalEnvFiles();
-
 const port = Number.parseInt(process.env.PAIRING_API_PORT ?? "8787", 10);
-const appBaseUrl = process.env.PAIRING_APP_BASE_URL ?? "http://localhost:5173";
-const supabaseUrl = process.env.SUPABASE_URL;
-const supabaseServiceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-if (!supabaseUrl || !supabaseServiceRoleKey) {
-  throw new Error(
-    "Missing Supabase configuration. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.",
-  );
-}
-
-if (supabaseServiceRoleKey.startsWith("sb_publishable_")) {
-  throw new Error(
-    "SUPABASE_SERVICE_ROLE_KEY is using a Supabase publishable key. Replace it with the backend secret/service-role key from your Supabase project settings.",
-  );
-}
-
-const pairingService = new PairingService({
-  appBaseUrl,
-  supabaseKey: supabaseServiceRoleKey,
-  supabaseUrl,
-});
+const pairingService = new PairingService();
 
 const server = createServer(async (request, response) => {
   try {
@@ -56,60 +30,34 @@ const server = createServer(async (request, response) => {
 
     if (request.method === "POST" && pathname === "/pairing/invites") {
       const body = await readJsonBody<CreateInviteRequest>(request);
-      const result = await pairingService.createInvite(body);
-      sendJson(response, 201, result);
+      sendJson(response, 201, pairingService.createInvite(body));
       return;
     }
 
     const inviteStatusMatch = pathname.match(/^\/pairing\/invites\/([^/]+)$/);
     if (request.method === "GET" && inviteStatusMatch) {
-      const inviteCode = decodeURIComponent(inviteStatusMatch[1] ?? "");
-      const result = await pairingService.getInviteSessionStatus(inviteCode);
-      sendJson(response, 200, result);
+      sendJson(response, 200, pairingService.getInviteSessionStatus(decodeURIComponent(inviteStatusMatch[1] ?? "")));
       return;
     }
 
     const joinMatch = pathname.match(/^\/pairing\/invites\/([^/]+)\/join$/);
     if (request.method === "POST" && joinMatch) {
-      const inviteCode = decodeURIComponent(joinMatch[1] ?? "");
       const body = await readJsonBody<JoinInviteRequest>(request);
-      const result = await pairingService.joinInvite(inviteCode, body);
-      sendJson(response, 200, result);
-      return;
-    }
-
-    const confirmMatch = pathname.match(/^\/pairing\/invites\/([^/]+)\/confirm$/);
-    if (request.method === "POST" && confirmMatch) {
-      const inviteCode = decodeURIComponent(confirmMatch[1] ?? "");
-      const body = await readJsonBody<ConfirmVerificationRequest>(request);
-      const result = await pairingService.confirmInvite(inviteCode, body);
-      sendJson(response, 200, result);
-      return;
-    }
-
-    const publicKeyMatch = pathname.match(/^\/users\/([^/]+)\/public-key$/);
-    if (request.method === "GET" && publicKeyMatch) {
-      const participantId = decodeURIComponent(publicKeyMatch[1] ?? "");
-      const result = await pairingService.lookupPublicKey(participantId);
-      sendJson(response, 200, result);
+      sendJson(response, 200, pairingService.joinInvite(decodeURIComponent(joinMatch[1] ?? ""), body));
       return;
     }
 
     if (request.method === "POST" && pathname === "/pairing/reset") {
       const body = await readJsonBody<ResetPairingRequest>(request);
-      const result = await pairingService.resetPairing(body);
-      sendJson(response, 200, result);
+      sendJson(response, 200, pairingService.resetPairing(body));
       return;
     }
 
-    sendJson(response, 404, {
-      error: "Route not found.",
-    });
+    sendJson(response, 404, { error: "Route not found." });
   } catch (error) {
     const statusCode = error instanceof ApiError ? error.statusCode : 500;
-    const message = error instanceof Error ? error.message : "Unexpected server error.";
     sendJson(response, statusCode, {
-      error: message,
+      error: error instanceof Error ? error.message : "Unexpected server error.",
     });
   }
 });
@@ -146,53 +94,4 @@ async function readJsonBody<T>(request: IncomingMessage): Promise<T> {
 function sendJson(response: ServerResponse, statusCode: number, body: unknown) {
   response.writeHead(statusCode);
   response.end(JSON.stringify(body));
-}
-
-function loadLocalEnvFiles() {
-  const apiDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-
-  for (const relativePath of [".env.local", ".env"]) {
-    const envPath = resolve(apiDir, relativePath);
-
-    if (!existsSync(envPath)) {
-      continue;
-    }
-
-    const source = readFileSync(envPath, "utf8");
-
-    for (const line of source.split(/\r?\n/)) {
-      const trimmedLine = line.trim();
-
-      if (!trimmedLine || trimmedLine.startsWith("#")) {
-        continue;
-      }
-
-      const separatorIndex = trimmedLine.indexOf("=");
-
-      if (separatorIndex <= 0) {
-        continue;
-      }
-
-      const key = trimmedLine.slice(0, separatorIndex).trim();
-
-      if (!key || process.env[key] !== undefined) {
-        continue;
-      }
-
-      const rawValue = trimmedLine.slice(separatorIndex + 1).trim();
-      const value = normalizeEnvValue(rawValue);
-      process.env[key] = value;
-    }
-  }
-}
-
-function normalizeEnvValue(value: string) {
-  if (
-    (value.startsWith("\"") && value.endsWith("\"")) ||
-    (value.startsWith("'") && value.endsWith("'"))
-  ) {
-    return value.slice(1, -1);
-  }
-
-  return value;
 }

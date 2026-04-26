@@ -4,15 +4,7 @@ const CURRENT_DEPLOY_TOKEN = import.meta.env.VITE_GHOSTSCRIPT_DEPLOY_TOKEN ?? "l
 void clearStorageOnNewDeploy();
 
 chrome.runtime.onInstalled.addListener(() => {
-  console.info("Ghostscript extension scaffold installed");
-});
-
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  if (message?.type === "ghostscript:ping") {
-    sendResponse({ ok: true, source: "background" });
-  }
-
-  return true;
+  console.info("Ghostscript extension installed");
 });
 
 async function clearStorageOnNewDeploy() {
@@ -27,6 +19,4 @@ async function clearStorageOnNewDeploy() {
   await chrome.storage.local.set({
     [DEPLOY_TOKEN_STORAGE_KEY]: CURRENT_DEPLOY_TOKEN,
   });
-
-  console.info("Cleared extension storage for fresh deploy.");
 }
