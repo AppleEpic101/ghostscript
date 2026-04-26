@@ -58,6 +58,7 @@ export function getSupportedEncodingConfigs() {
 export async function encodeBitstringAsCoverText(params: EncodeRequest) {
   logGhostscriptDebug("llm-bridge", "encode-request-start", {
     configId: params.config.configId,
+    prompt: params.prompt,
     promptLength: params.prompt.length,
     bitstringLength: params.bitstring.length,
     wordTarget: params.wordTarget,
@@ -74,6 +75,7 @@ export async function encodeBitstringAsCoverText(params: EncodeRequest) {
 export async function decodeCoverTextToBitstring(params: DecodeVisibleTextParams) {
   logGhostscriptDebug("llm-bridge", "decode-request-start", {
     configId: params.config.configId,
+    prompt: params.prompt,
     promptLength: params.prompt.length,
     visibleText: params.visibleText,
     visibleTextLength: params.visibleText.length,
