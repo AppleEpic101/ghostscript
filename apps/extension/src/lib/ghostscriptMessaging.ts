@@ -65,6 +65,11 @@ export async function sendEncryptedGhostscriptMessage(params: {
   try {
     const envelope = await encryptMessageEnvelope(params.plaintext, msgId, material);
     const bitstring = serializeEnvelopeToBitstring(envelope);
+    console.info("Ghostscript encrypted message", {
+      envelope,
+      bitstring,
+      ciphertext: envelope.ciphertext,
+    });
     const encodingConfig = getDefaultEncodingConfig();
     const wordTarget = estimateWordTarget(bitstring.length, encodingConfig.bitsPerStep);
     const prompt = buildConversationPrompt({
@@ -84,6 +89,12 @@ export async function sendEncryptedGhostscriptMessage(params: {
         `Ghostscript generated ${visibleText.length} characters of cover text, which exceeds Discord's ${DISCORD_MAX_MESSAGE_LENGTH}-character limit.`,
       );
     }
+
+    console.info("Ghostscript cover message", {
+      visibleText,
+      prompt,
+      wordTarget,
+    });
 
     await setPendingSend(threadId, {
       threadId,
