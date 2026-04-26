@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { DEFAULT_TRANSPORT_CONFIG_ID, type LLMEncodingConfig } from "@ghostscript/shared";
 import {
+  __internal_collectTopMergeSafeCandidates,
   __internal_createTransport,
   decodeRankedTextToBitstring,
   encodeBitstringAsRankedText,
@@ -89,6 +90,32 @@ test("candidate pool respects exclusions and roundtrips with the real tokenizer/
   });
 
   assert.equal(decoded, bitstring);
+});
+
+test("candidate pool keeps scanning the global ranking until it finds the top merge-safe candidates", async () => {
+  const rankedCandidates = [
+    { id: 10, logit: 100 },
+    { id: 11, logit: 99 },
+    { id: 12, logit: 98 },
+    { id: 13, logit: 97 },
+    { id: 14, logit: 96 },
+    { id: 15, logit: 95 },
+    { id: 16, logit: 94 },
+    { id: 17, logit: 93 },
+  ];
+  const mergeSafeIds = new Set([14, 15, 16, 17]);
+  const minimumPoolSize = 4;
+  const safeCandidates = await __internal_collectTopMergeSafeCandidates({
+    rankedCandidates,
+    minimumPoolSize,
+    isMergeSafe: async (candidate) => mergeSafeIds.has(candidate.id),
+  });
+
+  assert.deepEqual(
+    safeCandidates.map((candidate) => candidate.id),
+    [14, 15, 16, 17],
+  );
+  assert.equal(safeCandidates.length, minimumPoolSize);
 });
 
 test("decode tolerates trailing style-ending text after the declared payload bits", { timeout: 300_000 }, async () => {

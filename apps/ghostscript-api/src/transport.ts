@@ -18,8 +18,6 @@ const DEFAULT_ENCODING_CONFIG: LLMEncodingConfig = {
 };
 
 const MODEL_ID = "Xenova/distilgpt2";
-const MERGE_SAFETY_SCAN_MULTIPLIER = 4;
-
 interface CandidateToken {
   id: number;
   logit: number;
@@ -159,6 +157,26 @@ export async function __internal_createTransport(
   return createTransport(prompt, resolveEncodingConfig(config));
 }
 
+export async function __internal_collectTopMergeSafeCandidates(params: {
+  rankedCandidates: CandidateToken[];
+  minimumPoolSize: number;
+  isMergeSafe: (candidate: CandidateToken) => Promise<boolean>;
+}) {
+  const safeCandidates: CandidateToken[] = [];
+
+  for (const candidate of params.rankedCandidates) {
+    if (await params.isMergeSafe(candidate)) {
+      safeCandidates.push(candidate);
+    }
+
+    if (safeCandidates.length >= params.minimumPoolSize) {
+      break;
+    }
+  }
+
+  return safeCandidates;
+}
+
 function selectTokenForStep(
   pool: CandidateToken[],
   bitstring: string,
@@ -222,24 +240,12 @@ async function createTransport(prompt: string, config: LLMEncodingConfig) {
       });
 
       const minimumPoolSize = Math.max(2 ** config.bitsPerStep, 1);
-      const scanLimit = Math.min(
-        rankedCandidates.length,
-        Math.max(minimumPoolSize * MERGE_SAFETY_SCAN_MULTIPLIER, minimumPoolSize),
-      );
-      const safeCandidates: CandidateToken[] = [];
-
-      for (const candidate of rankedCandidates.slice(0, scanLimit)) {
-        const previousTokenId = outputTokenIds[outputTokenIds.length - 1] ?? null;
-        if (await isMergeSafeAppend(context, previousTokenId, candidate.id)) {
-          safeCandidates.push(candidate);
-        }
-
-        if (safeCandidates.length >= minimumPoolSize) {
-          break;
-        }
-      }
-
-      return safeCandidates;
+      const previousTokenId = outputTokenIds[outputTokenIds.length - 1] ?? null;
+      return __internal_collectTopMergeSafeCandidates({
+        rankedCandidates,
+        minimumPoolSize,
+        isMergeSafe: (candidate) => isMergeSafeAppend(context, previousTokenId, candidate.id),
+      });
     },
     async tokenizeOutput(visibleText: string) {
       return tokenizeText(context, visibleText);
