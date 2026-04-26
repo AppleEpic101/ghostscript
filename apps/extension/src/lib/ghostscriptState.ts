@@ -41,6 +41,7 @@ export interface GhostscriptConversationState {
   cachedMessages: GhostscriptThreadMessage[];
   suppressedMessageIds: string[];
   decodedMessages: Record<string, DecodedGhostscriptMessageState>;
+  confirmedEncodedMessages: EncodedGhostscriptMessage[];
   pendingSend: PendingSendState | null;
 }
 
@@ -161,6 +162,16 @@ export async function setPendingSend(threadId: string, pendingSend: PendingSendS
   }));
 }
 
+export async function storeConfirmedEncodedMessage(threadId: string, encodedMessage: EncodedGhostscriptMessage) {
+  return updateConversationState(threadId, (conversation) => ({
+    ...conversation,
+    confirmedEncodedMessages: [
+      ...conversation.confirmedEncodedMessages.filter((message) => message.visibleText !== encodedMessage.visibleText),
+      encodedMessage,
+    ].slice(-24),
+  }));
+}
+
 export function isPendingSendStale(
   pendingSend: PendingSendState | null | undefined,
   activeSessionId: string,
@@ -235,6 +246,7 @@ function createEmptyConversationState(threadId: string): GhostscriptConversation
     cachedMessages: [],
     suppressedMessageIds: [],
     decodedMessages: {},
+    confirmedEncodedMessages: [],
     pendingSend: null,
   };
 }
@@ -242,6 +254,7 @@ function createEmptyConversationState(threadId: string): GhostscriptConversation
 function normalizeConversationState(conversation: GhostscriptConversationState): GhostscriptConversationState {
   return {
     ...conversation,
+    confirmedEncodedMessages: conversation.confirmedEncodedMessages ?? [],
     pendingSend: conversation.pendingSend
       ? {
           ...conversation.pendingSend,

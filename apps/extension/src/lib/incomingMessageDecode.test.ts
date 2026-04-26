@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import type { GhostscriptThreadMessage } from "@ghostscript/shared";
 import { decodeRankedTextToBitstring, encodeBitstringAsRankedText } from "../../../ghostscript-api/src/transport";
-import { serializeEnvelopeToBitstring } from "./bitstream";
+import { estimateWordTarget, serializeEnvelopeToBitstring } from "./bitstream";
 import { generateIdentityBundle, encryptMessageEnvelope, decryptMessageEnvelope, type SessionCryptoMaterial } from "./crypto";
 import { buildDecodeHistoryWindows } from "./decodedMessages";
 import { attemptIncomingMessageDecode } from "./incomingMessageDecode";
@@ -40,10 +40,11 @@ test("incoming decode succeeds with cached history when the visible DOM history 
     messages: cachedHistory,
   });
   const envelope = await encryptMessageEnvelope("Meet by the side entrance.", 11, aliceMaterial);
+  const bitstring = serializeEnvelopeToBitstring(envelope);
   const visibleText = encodeBitstringAsRankedText({
     prompt,
-    bitstring: serializeEnvelopeToBitstring(envelope),
-    wordTarget: 20,
+    bitstring,
+    wordTarget: estimateWordTarget(bitstring.length, config.bitsPerStep),
     config,
   });
 
@@ -98,10 +99,11 @@ test("incoming decode succeeds for the first post-pairing message with no prior 
     messages: [],
   });
   const envelope = await encryptMessageEnvelope("Meet by the side entrance.", 11, aliceMaterial);
+  const bitstring = serializeEnvelopeToBitstring(envelope);
   const visibleText = encodeBitstringAsRankedText({
     prompt,
-    bitstring: serializeEnvelopeToBitstring(envelope),
-    wordTarget: 20,
+    bitstring,
+    wordTarget: estimateWordTarget(bitstring.length, config.bitsPerStep),
     config,
   });
 

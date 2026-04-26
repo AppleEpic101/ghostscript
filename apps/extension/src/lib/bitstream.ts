@@ -38,7 +38,7 @@ export function deserializeEnvelopeFromBitstring(bitstring: string): MessageEnve
 
 export function estimateWordTarget(payloadBitLength: number, bitsPerToken: number) {
   const estimatedTokens = Math.max(12, Math.ceil(payloadBitLength / Math.max(bitsPerToken, 1)));
-  return Math.max(10, Math.ceil(estimatedTokens * 0.75));
+  return Math.max(10, Math.ceil(estimatedTokens * 0.7));
 }
 
 function bytesToBitstring(bytes: Uint8Array) {

@@ -47,7 +47,7 @@ const server = createServer(async (request, response) => {
           promptLength: body.prompt.length,
           bitstringLength: body.bitstring.length,
           wordTarget: body.wordTarget,
-          configId: body.config.configId,
+          configId: body.config?.configId ?? "default",
         },
       }));
       sendJson(response, 200, await llmService.encode(body));
@@ -64,7 +64,7 @@ const server = createServer(async (request, response) => {
           promptLength: body.prompt.length,
           visibleText: body.visibleText,
           visibleTextLength: body.visibleText.length,
-          configId: body.config.configId,
+          configId: body.config?.configId ?? "default",
         },
       }));
       sendJson(response, 200, await llmService.decode(body));

@@ -26,6 +26,24 @@ test("encode rejects oversized transport inputs", async () => {
   );
 });
 
+test("encode surfaces transport budget failures as client errors", async () => {
+  const service = new LlmService();
+  const bitstring = "000000000000000000000000000100000110100001101001".repeat(6);
+
+  await assert.rejects(
+    () =>
+      service.encode({
+        prompt: "Cover text topic: coffee\nAlice: can you keep this short?",
+        bitstring,
+        wordTarget: 3,
+      }),
+    (error: unknown) =>
+      isApiErrorWithStatus(error, 400) &&
+      error instanceof Error &&
+      error.message.includes("cover-text budget"),
+  );
+});
+
 test("decode rejects unsupported config IDs", async () => {
   const service = new LlmService();
 

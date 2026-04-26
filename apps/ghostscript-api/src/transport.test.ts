@@ -5,6 +5,7 @@ import {
   __internal_createAdapter,
   decodeRankedTextToBitstring,
   encodeBitstringAsRankedText,
+  TransportBudgetExceededError,
 } from "./transport";
 
 const PROMPT = [
@@ -33,13 +34,19 @@ function buildConfig(overrides: Partial<LLMEncodingConfig> = {}): LLMEncodingCon
   };
 }
 
+function estimateWordTargetForTest(payloadBitLength: number, bitsPerToken: number) {
+  const estimatedTokens = Math.max(12, Math.ceil(payloadBitLength / Math.max(bitsPerToken, 1)));
+  return Math.max(10, Math.ceil(estimatedTokens * 0.7));
+}
+
 test("rank transport roundtrips a fixed bitstring", () => {
   const bitstring = "000000000000000000000000001010000110100001100101011011000110110001101111";
   const config = buildConfig();
+  const wordTarget = estimateWordTargetForTest(bitstring.length, config.bitsPerStep);
   const visibleText = encodeBitstringAsRankedText({
     prompt: PROMPT,
     bitstring,
-    wordTarget: 18,
+    wordTarget,
     config,
   });
 
@@ -72,10 +79,11 @@ test("candidate filtering respects exclusions and reduced-width fallback stays d
   assert.ok(excludedPool.every((candidate) => excludedAdapter.detokenize([candidate.id]).toLowerCase() !== excludedToken));
 
   const bitstring = "000000000000000000000000000001001011";
+  const wordTarget = estimateWordTargetForTest(bitstring.length, fallbackConfig.bitsPerStep);
   const visibleText = encodeBitstringAsRankedText({
     prompt: PROMPT,
     bitstring,
-    wordTarget: 18,
+    wordTarget,
     config: fallbackConfig,
   });
 
@@ -91,10 +99,11 @@ test("candidate filtering respects exclusions and reduced-width fallback stays d
 test("decode returns null when the visible text does not match a valid candidate path", () => {
   const bitstring = "000000000000000000000000000100000110100001101001";
   const config = buildConfig();
+  const wordTarget = estimateWordTargetForTest(bitstring.length, config.bitsPerStep);
   const visibleText = encodeBitstringAsRankedText({
     prompt: PROMPT,
     bitstring,
-    wordTarget: 16,
+    wordTarget,
     config,
   });
   const tampered = `${visibleText} Extra`;
@@ -108,15 +117,10 @@ test("decode returns null when the visible text does not match a valid candidate
   assert.equal(decoded, null);
 });
 
-test("rank transport ignores wordTarget as protocol state", () => {
+test("rank transport respects the requested word budget", () => {
   const bitstring = "000000000000000000000000000100000110100001101001";
+  const oversizedBitstring = `${bitstring}${bitstring}${bitstring}${bitstring}${bitstring}${bitstring}`;
   const config = buildConfig();
-  const shortTargetVisibleText = encodeBitstringAsRankedText({
-    prompt: PROMPT,
-    bitstring,
-    wordTarget: 10,
-    config,
-  });
   const longTargetVisibleText = encodeBitstringAsRankedText({
     prompt: PROMPT,
     bitstring,
@@ -124,7 +128,6 @@ test("rank transport ignores wordTarget as protocol state", () => {
     config,
   });
 
-  assert.equal(shortTargetVisibleText, longTargetVisibleText);
   assert.equal(
     decodeRankedTextToBitstring({
       prompt: PROMPT,
@@ -132,5 +135,16 @@ test("rank transport ignores wordTarget as protocol state", () => {
       config,
     }),
     bitstring,
+  );
+
+  assert.throws(
+    () =>
+      encodeBitstringAsRankedText({
+        prompt: PROMPT,
+        bitstring: oversizedBitstring,
+        wordTarget: 3,
+        config,
+      }),
+    (error: unknown) => error instanceof TransportBudgetExceededError,
   );
 });
