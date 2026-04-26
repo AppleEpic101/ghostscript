@@ -9,6 +9,7 @@ import { ApiError, PairingService } from "./service";
 
 const port = Number.parseInt(process.env.PAIRING_API_PORT ?? "8787", 10);
 const pairingService = new PairingService();
+let isShuttingDown = false;
 
 const server = createServer(async (request, response) => {
   try {
@@ -66,9 +67,39 @@ const server = createServer(async (request, response) => {
   }
 });
 
+server.on("error", (error: NodeJS.ErrnoException) => {
+  if (error.code === "EADDRINUSE") {
+    console.error(
+      `Port ${port} is already in use. Stop the existing pairing API process or set PAIRING_API_PORT to a different port.`,
+    );
+    process.exitCode = 1;
+    return;
+  }
+
+  throw error;
+});
+
 server.listen(port, () => {
   console.log(`Ghostscript pairing API listening on http://localhost:${port}`);
 });
+
+for (const signal of ["SIGINT", "SIGTERM"] as const) {
+  process.on(signal, () => {
+    if (isShuttingDown) {
+      return;
+    }
+
+    isShuttingDown = true;
+    server.close((error) => {
+      if (error) {
+        console.error("Failed to shut down pairing API cleanly.", error);
+        process.exit(1);
+      }
+
+      process.exit(0);
+    });
+  });
+}
 
 function applyCorsHeaders(response: ServerResponse) {
   response.setHeader("Access-Control-Allow-Origin", "*");
