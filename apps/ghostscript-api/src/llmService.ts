@@ -91,39 +91,17 @@ function sanitizeRecentMessages(recentMessages: string[] | undefined) {
 
 function buildCoverTextPrompt(coverTopic: string, recentMessages: string[]) {
   const topic = coverTopic.trim();
-  let example = `Alex: yo, tell me you’ve seen the trailer for that new horror movie? the one with the creepy basement?
-
-Sam: the one with the guy from that sitcom?? yeah it looks so bad lol. why do they always go into the basement?
-
-Alex: literally. like just leave the house?? call a realtor?? 💀
-
-Sam: haha exactly. anyway u still coming over for the game tonight? i’ve got wings.
-
-Alex: u know i’m there for the wings. game is just a bonus.
-
-Sam: valid. bring some of those spicy chips if u stop by the store? i’ll venmo u.
-
-Alex: gotchu. see u around 7ish?
-
-Sam: sounds good. don't be late or i'm eating your share of the buffalo ones.
-
-Alex: wow. the betrayal. i'm leaving now just to be safe. 🏃‍♂️`
   return [
-    "You generate one casual conversational Discord message.",
+    "You generate one ordinary-looking Discord message.",
     "The message is only cover text and should read like a real casual DM between two people who already know each other.",
     "Do not mention encryption, hidden text, steganography, protocols, or instructions.",
     "Use plain chat language. No lists, titles, summaries, or explanations.",
-    "Sound natural, specific, and a little varied instead of generic or assistant-like. ",
+    "Sound natural, specific, and a little varied instead of generic or assistant-like.",
     "Match the rhythm of an ongoing conversation: react to the recent messages, add a detail, opinion, question, or small pivot.",
     "It is okay to drift naturally into a nearby topic if that feels human, as long as the message still makes sense as a reply in the same chat.",
-    "Do not sound like a shuffled paraphrase of the previous messages.",
-    "Avoid repetitive opener patterns like re-asking 'you watching the game tonight?', 'you catch the game last night?', or repeating the same sports beat with tiny wording changes.",
-    "If the recent chat is already about one moment from a game, continue from there with a fresh reaction, side comment, joke, complaint, or tangent instead of restating the same event.",
-    "Use more human variation in sentence shape, tone, and pacing. It is fine to sound a little messy, playful, annoyed, lowercase, or offhand when that fits.",
     "Avoid cliches like 'sounds good', 'for now', 'vibe', 'circle back', or anything that reads templated.",
     "Keep it to one or two sentences and under 30 words unless the recent chat clearly runs longer.",
     `Loose topic to draw from: ${topic}`,
-    `Example of a good cover text:\n${example} (Pay attention to the tone and style of the cover text)`,
     recentMessages.length > 0
       ? `Recent chat history:\n${recentMessages.join("\n")}\n\nWrite the next single message in that conversation.`
       : "Write the first casual message in that conversation, sounding like a real person rather than a generic placeholder.",
@@ -131,6 +109,7 @@ Alex: wow. the betrayal. i'm leaving now just to be safe. 🏃‍♂️`
     .filter(Boolean)
     .join("\n\n");
 }
+
 function buildTemplateCoverText(coverTopic: string, recentMessages: string[]) {
   const normalizedTopic = normalizeTopic(coverTopic);
   const recentTail = recentMessages[recentMessages.length - 1]?.replace(/^.*?:\s*/, "").trim() ?? "";
