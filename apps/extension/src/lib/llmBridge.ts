@@ -1,14 +1,14 @@
 import type { GhostscriptThreadMessage, LLMEncodingConfig } from "@ghostscript/shared";
 
-const DEFAULT_LLM_BRIDGE_BASE_URL = "http://localhost:8788";
+const DEFAULT_GHOSTSCRIPT_API_BASE_URL = "http://localhost:8787";
 const DEFAULT_ENCODING_CONFIG: LLMEncodingConfig = {
   configId: "ghostscript-default-v1",
   provider: "ghostscript-bridge",
-  modelId: import.meta.env.VITE_GHOSTSCRIPT_LLM_MODEL?.trim() || "ghostscript-pinned-model",
-  tokenizerId: import.meta.env.VITE_GHOSTSCRIPT_LLM_TOKENIZER?.trim() || "ghostscript-pinned-tokenizer",
+  modelId: "ghostscript-pinned-model",
+  tokenizerId: "ghostscript-pinned-tokenizer",
   temperature: 1,
   pMin: 0.001,
-  bitsPerStep: Number.parseInt(import.meta.env.VITE_GHOSTSCRIPT_BITS_PER_STEP ?? "3", 10),
+  bitsPerStep: 3,
   excludedTokenSet: ["<|endoftext|>", "<s>", "</s>"],
   fallbackStrategy: "reduce-bits",
   tieBreakRule: "token-id-ascending",
@@ -75,7 +75,9 @@ export function buildConversationPrompt(params: {
 }
 
 function getBridgeBaseUrl() {
-  return import.meta.env.VITE_GHOSTSCRIPT_LLM_BASE_URL?.trim().replace(/\/$/, "") ?? DEFAULT_LLM_BRIDGE_BASE_URL;
+  return (
+    import.meta.env.VITE_GHOSTSCRIPT_API_BASE_URL?.trim().replace(/\/$/, "") ?? DEFAULT_GHOSTSCRIPT_API_BASE_URL
+  );
 }
 
 async function requestBridgeJson<T>(path: string, body: unknown): Promise<T> {
@@ -84,13 +86,13 @@ async function requestBridgeJson<T>(path: string, body: unknown): Promise<T> {
   try {
     response = await fetch(`${getBridgeBaseUrl()}${path}`, {
       method: "POST",
-      headers: buildHeaders(),
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
   } catch (error) {
     if (error instanceof TypeError) {
       throw new Error(
-        `Unable to reach the Ghostscript LLM bridge at ${getBridgeBaseUrl()}. Confirm the service is running and the extension env vars are correct.`,
+        `Unable to reach the Ghostscript API at ${getBridgeBaseUrl()}. Confirm the local API is running and reload the extension if its URL changed.`,
       );
     }
 
@@ -104,13 +106,4 @@ async function requestBridgeJson<T>(path: string, body: unknown): Promise<T> {
   }
 
   return payload as T;
-}
-
-function buildHeaders() {
-  const apiKey = import.meta.env.VITE_GHOSTSCRIPT_LLM_API_KEY?.trim();
-
-  return {
-    "Content-Type": "application/json",
-    ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
-  };
 }

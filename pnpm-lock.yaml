@@ -42,29 +42,7 @@ importers:
         specifier: ^7.1.7
         version: 7.3.2(@types/node@24.12.2)(tsx@4.21.0)
 
-  apps/llm-bridge:
-    dependencies:
-      '@ghostscript/shared':
-        specifier: workspace:*
-        version: link:../../packages/shared
-      dotenv:
-        specifier: ^17.2.3
-        version: 17.4.2
-      openai:
-        specifier: ^6.4.0
-        version: 6.34.0(ws@8.20.0)
-    devDependencies:
-      '@types/node':
-        specifier: ^24.7.2
-        version: 24.12.2
-      tsx:
-        specifier: ^4.20.6
-        version: 4.21.0
-      typescript:
-        specifier: ^5.9.3
-        version: 5.9.3
-
-  apps/pairing-api:
+  apps/ghostscript-api:
     dependencies:
       '@ghostscript/shared':
         specifier: workspace:*
@@ -75,6 +53,9 @@ importers:
       dotenv:
         specifier: ^17.2.3
         version: 17.4.2
+      openai:
+        specifier: ^6.4.0
+        version: 6.34.0(ws@8.20.0)
     devDependencies:
       '@types/node':
         specifier: ^24.7.2

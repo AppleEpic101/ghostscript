@@ -4,8 +4,6 @@
   "private": true,
   "packageManager": "pnpm@10.12.1",
   "scripts": {
-    "dev:llm-bridge": "corepack pnpm --filter @ghostscript/llm-bridge dev",
-    "start:llm-bridge": "corepack pnpm --filter @ghostscript/llm-bridge start",
     "build": "corepack pnpm -r build",
     "typecheck": "corepack pnpm -r typecheck"
   }

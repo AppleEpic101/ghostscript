@@ -5,10 +5,12 @@ import type {
   JoinInviteRequest,
   ResetPairingRequest,
 } from "@ghostscript/shared";
+import { LlmService, type DecodeRequestBody, type EncodeRequestBody } from "./llmService";
 import { ApiError, PairingService } from "./service";
 
-const port = Number.parseInt(process.env.PAIRING_API_PORT ?? "8787", 10);
+const port = Number.parseInt(process.env.GHOSTSCRIPT_API_PORT ?? "8787", 10);
 const pairingService = new PairingService();
+const llmService = new LlmService();
 let isShuttingDown = false;
 
 const server = createServer(async (request, response) => {
@@ -25,7 +27,22 @@ const server = createServer(async (request, response) => {
     const pathname = url.pathname;
 
     if (request.method === "GET" && pathname === "/health") {
-      sendJson(response, 200, { ok: true });
+      sendJson(response, 200, {
+        ok: true,
+        llm: llmService.getHealth(),
+      });
+      return;
+    }
+
+    if (request.method === "POST" && pathname === "/encode") {
+      const body = await readJsonBody<EncodeRequestBody>(request);
+      sendJson(response, 200, await llmService.encode(body));
+      return;
+    }
+
+    if (request.method === "POST" && pathname === "/decode") {
+      const body = await readJsonBody<DecodeRequestBody>(request);
+      sendJson(response, 200, await llmService.decode(body));
       return;
     }
 
@@ -70,7 +87,7 @@ const server = createServer(async (request, response) => {
 server.on("error", (error: NodeJS.ErrnoException) => {
   if (error.code === "EADDRINUSE") {
     console.error(
-      `Port ${port} is already in use. Stop the existing pairing API process or set PAIRING_API_PORT to a different port.`,
+      `Port ${port} is already in use. Stop the existing Ghostscript API process or set GHOSTSCRIPT_API_PORT to a different port.`,
     );
     process.exitCode = 1;
     return;
@@ -80,7 +97,7 @@ server.on("error", (error: NodeJS.ErrnoException) => {
 });
 
 server.listen(port, () => {
-  console.log(`Ghostscript pairing API listening on http://localhost:${port}`);
+  console.log(`Ghostscript API listening on http://localhost:${port}`);
 });
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
@@ -92,7 +109,7 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
     isShuttingDown = true;
     server.close((error) => {
       if (error) {
-        console.error("Failed to shut down pairing API cleanly.", error);
+        console.error("Failed to shut down Ghostscript API cleanly.", error);
         process.exit(1);
       }
 

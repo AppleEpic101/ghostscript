@@ -8,10 +8,12 @@ import type {
   ResetPairingResponse,
 } from "@ghostscript/shared";
 
-const DEFAULT_PAIRING_API_BASE_URL = "http://localhost:8787";
+const DEFAULT_GHOSTSCRIPT_API_BASE_URL = "http://localhost:8787";
 
 function getPairingApiBaseUrl() {
-  return import.meta.env.VITE_PAIRING_API_BASE_URL?.trim().replace(/\/$/, "") ?? DEFAULT_PAIRING_API_BASE_URL;
+  return (
+    import.meta.env.VITE_GHOSTSCRIPT_API_BASE_URL?.trim().replace(/\/$/, "") ?? DEFAULT_GHOSTSCRIPT_API_BASE_URL
+  );
 }
 
 export function createInvite(request: CreateInviteRequest) {
@@ -42,7 +44,7 @@ async function requestJson<T>(path: string, body?: unknown, method = "POST"): Pr
   } catch (error) {
     if (error instanceof TypeError) {
       throw new Error(
-        `Unable to reach the pairing API at ${getPairingApiBaseUrl()}. Confirm the local API is running and reload the extension if its URL changed.`,
+        `Unable to reach the Ghostscript API at ${getPairingApiBaseUrl()}. Confirm the local API is running and reload the extension if its URL changed.`,
       );
     }
 
