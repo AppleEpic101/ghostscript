@@ -3,7 +3,8 @@ import ReactDOM, { type Root } from "react-dom/client";
 import { getCurrentDiscordThreadId, getDiscordNativeTextbox } from "../lib/discord";
 import { isPendingSendStale, readConversationState, setPendingSend } from "../lib/ghostscriptState";
 import { sendEncryptedGhostscriptMessage, syncGhostscriptConversation } from "../lib/ghostscriptMessaging";
-import { readExtensionState } from "../lib/pairingStore";
+import { getInviteSessionStatus } from "../lib/pairingApi";
+import { applyInviteSessionSnapshot, readExtensionState } from "../lib/pairingStore";
 import overlayStyles from "./styles.css?inline";
 
 const COMPOSER_OVERLAY_HOST_ID = "ghostscript-composer-overlay-root";
@@ -170,7 +171,7 @@ function GhostscriptComposerOverlay({ onLayoutChange }: { onLayoutChange: () => 
     setSendLocked(true);
 
     try {
-      const state = await readExtensionState();
+      const state = await readFreshExtensionState(true);
       const activePairing = state.activePairing;
       const localUsername = state.profile?.discordUsername ?? "";
       const partnerUsername = activePairing?.counterpart?.username ?? "";
@@ -474,7 +475,7 @@ async function syncConversationActivity() {
   conversationSyncInFlight = true;
 
   try {
-    const state = await readExtensionState();
+    const state = await readFreshExtensionState(false);
     const activePairing = state.activePairing;
     const localUsername = state.profile?.discordUsername ?? "";
     const partnerUsername = activePairing?.counterpart?.username ?? "";
@@ -512,6 +513,32 @@ function unmountComposerOverlay() {
   syncDiscordNativeTextboxMask(false);
   document.getElementById(COMPOSER_OVERLAY_HOST_ID)?.remove();
   clearConversationSpacer();
+}
+
+async function readFreshExtensionState(forcePairingRefresh: boolean) {
+  const state = await readExtensionState();
+  const activePairing = state.activePairing;
+
+  if (!activePairing) {
+    return state;
+  }
+
+  const missingCounterpartIdentity =
+    activePairing.status !== "paired" ||
+    !activePairing.counterpart?.username ||
+    !activePairing.counterpart?.transportPublicKey;
+
+  if (!forcePairingRefresh && !missingCounterpartIdentity) {
+    return state;
+  }
+
+  try {
+    const snapshot = await getInviteSessionStatus(activePairing.inviteCode);
+    await applyInviteSessionSnapshot(snapshot);
+    return await readExtensionState();
+  } catch {
+    return state;
+  }
 }
 
 function getCurrentRoute() {
