@@ -6,6 +6,7 @@ import type {
   ResetPairingRequest,
 } from "@ghostscript/shared";
 import { LlmService, type DecodeRequestBody, type EncodeRequestBody } from "./llmService";
+import { getErrorDetails, logTerminalEvent } from "./logging";
 import { createRateLimiter } from "./rateLimit";
 import { ApiError, PairingService } from "./service";
 
@@ -39,35 +40,77 @@ const server = createServer(async (request, response) => {
 
     if (request.method === "POST" && pathname === "/encode") {
       const body = await readJsonBody<EncodeRequestBody>(request);
-      console.log("[Ghostscript Terminal]", JSON.stringify({
-        ts: new Date().toISOString(),
-        source: "api",
-        event: "encode-route",
-        details: {
+      const startedAt = Date.now();
+      const runtime = llmService.getHealth().runtime;
+      logTerminalEvent("api", "encode-route-start", {
+        promptLength: body.prompt.length,
+        bitstringLength: body.bitstring.length,
+        wordTarget: body.wordTarget,
+        configId: body.config?.configId ?? "default",
+        runtime,
+      });
+      try {
+        const result = await llmService.encode(body);
+        logTerminalEvent("api", "encode-route-success", {
           promptLength: body.prompt.length,
           bitstringLength: body.bitstring.length,
           wordTarget: body.wordTarget,
           configId: body.config?.configId ?? "default",
-        },
-      }));
-      sendJson(response, 200, await llmService.encode(body));
+          visibleTextLength: result.visibleText.length,
+          durationMs: Date.now() - startedAt,
+          runtime,
+        });
+        sendJson(response, 200, result);
+      } catch (error) {
+        logTerminalEvent("api", "encode-route-failure", {
+          promptLength: body.prompt.length,
+          bitstringLength: body.bitstring.length,
+          wordTarget: body.wordTarget,
+          configId: body.config?.configId ?? "default",
+          durationMs: Date.now() - startedAt,
+          runtime,
+          error: getErrorDetails(error),
+        });
+        throw error;
+      }
       return;
     }
 
     if (request.method === "POST" && pathname === "/decode") {
       const body = await readJsonBody<DecodeRequestBody>(request);
-      console.log("[Ghostscript Terminal]", JSON.stringify({
-        ts: new Date().toISOString(),
-        source: "api",
-        event: "decode-route",
-        details: {
+      const startedAt = Date.now();
+      const runtime = llmService.getHealth().runtime;
+      logTerminalEvent("api", "decode-route-start", {
+        promptLength: body.prompt.length,
+        visibleText: body.visibleText,
+        visibleTextLength: body.visibleText.length,
+        configId: body.config?.configId ?? "default",
+        runtime,
+      });
+      try {
+        const result = await llmService.decode(body);
+        logTerminalEvent("api", "decode-route-success", {
           promptLength: body.prompt.length,
           visibleText: body.visibleText,
           visibleTextLength: body.visibleText.length,
           configId: body.config?.configId ?? "default",
-        },
-      }));
-      sendJson(response, 200, await llmService.decode(body));
+          bitstringLength: result.bitstring?.length ?? 0,
+          durationMs: Date.now() - startedAt,
+          runtime,
+        });
+        sendJson(response, 200, result);
+      } catch (error) {
+        logTerminalEvent("api", "decode-route-failure", {
+          promptLength: body.prompt.length,
+          visibleText: body.visibleText,
+          visibleTextLength: body.visibleText.length,
+          configId: body.config?.configId ?? "default",
+          durationMs: Date.now() - startedAt,
+          runtime,
+          error: getErrorDetails(error),
+        });
+        throw error;
+      }
       return;
     }
 
@@ -149,6 +192,29 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
     });
   });
 }
+
+process.on("unhandledRejection", (reason) => {
+  logTerminalEvent("api", "unhandled-rejection", {
+    error: getErrorDetails(reason),
+    runtime: llmService.getHealth().runtime,
+  });
+});
+
+process.on("uncaughtException", (error) => {
+  logTerminalEvent("api", "uncaught-exception", {
+    error: getErrorDetails(error),
+    runtime: llmService.getHealth().runtime,
+  });
+
+  if (isShuttingDown) {
+    return;
+  }
+
+  isShuttingDown = true;
+  server.close(() => {
+    process.exit(1);
+  });
+});
 
 function applyCorsHeaders(response: ServerResponse) {
   response.setHeader("Access-Control-Allow-Origin", "*");

@@ -10,6 +10,8 @@ test("health reports rank-local transport metadata", () => {
   assert.equal(health.mode, "rank-local");
   assert.equal(health.transportProtocolVersion, 1);
   assert.deepEqual(health.supportedConfigIds, [DEFAULT_TRANSPORT_CONFIG_ID]);
+  assert.ok(Array.isArray(health.runtime.candidateDevices));
+  assert.ok(health.runtime.candidateDevices.length > 0);
 });
 
 test("encode rejects oversized transport inputs", async () => {

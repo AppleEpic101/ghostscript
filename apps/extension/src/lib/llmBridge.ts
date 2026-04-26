@@ -25,6 +25,7 @@ const DEFAULT_ENCODING_CONFIG: LLMEncodingConfig = {
   contextTruncationStrategy: "tail",
   maxContextTokens: 512,
 };
+const BRIDGE_REQUEST_TIMEOUT_MS = 180_000;
 
 interface EncodeRequest {
   prompt: string;
@@ -127,6 +128,19 @@ export function getTransportProtocolVersion() {
   return TRANSPORT_PROTOCOL_VERSION;
 }
 
+export function __internal_getBridgeTimeoutMessage(path: string, timeoutMs: number) {
+  const seconds = Math.round(timeoutMs / 1000);
+  if (path === "/encode") {
+    return `Ghostscript timed out while generating cover text after ${seconds} seconds. The local model may have stalled or the API may have crashed.`;
+  }
+
+  return `Ghostscript API request to ${path} timed out after ${seconds} seconds. The local model may have stalled or the API may have crashed.`;
+}
+
+export function __internal_getBridgeUnreachableMessage(baseUrl: string) {
+  return `Unable to reach the Ghostscript API at ${baseUrl}. Confirm the configured endpoint is reachable, then reload the extension if its URL changed or the API just restarted.`;
+}
+
 function getEncodingConfigById(configId: SupportedTransportConfigId) {
   switch (configId) {
     case DEFAULT_TRANSPORT_CONFIG_ID:
@@ -136,28 +150,41 @@ function getEncodingConfigById(configId: SupportedTransportConfigId) {
   throw new Error(`Unsupported Ghostscript transport config: ${configId}`);
 }
 
-async function requestBridgeJson<T>(path: string, body: unknown): Promise<T> {
+export async function __internal_requestBridgeJson<T>(
+  baseUrl: string,
+  path: string,
+  body: unknown,
+  fetchImpl: typeof fetch = fetch,
+): Promise<T> {
   let response: Response;
-  const baseUrl = getGhostscriptApiBaseUrl();
+  const abortController = new AbortController();
+  const timeout = setTimeout(() => {
+    abortController.abort();
+  }, BRIDGE_REQUEST_TIMEOUT_MS);
 
   try {
-    response = await fetch(`${baseUrl}${path}`, {
+    response = await fetchImpl(`${baseUrl}${path}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
+      signal: abortController.signal,
     });
   } catch (error) {
     logGhostscriptDebug("llm-bridge", "request-failed", {
       path,
       error: error instanceof Error ? error.message : "Unknown fetch failure.",
     });
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new Error(__internal_getBridgeTimeoutMessage(path, BRIDGE_REQUEST_TIMEOUT_MS));
+    }
+
     if (error instanceof TypeError) {
-      throw new Error(
-        `Unable to reach the Ghostscript API at ${baseUrl}. Confirm the configured endpoint is reachable and reload the extension if its URL changed.`,
-      );
+      throw new Error(__internal_getBridgeUnreachableMessage(baseUrl));
     }
 
     throw error;
+  } finally {
+    clearTimeout(timeout);
   }
 
   const payload = (await response.json().catch(() => null)) as { error?: string } | null;
@@ -172,4 +199,8 @@ async function requestBridgeJson<T>(path: string, body: unknown): Promise<T> {
   }
 
   return payload as T;
+}
+
+async function requestBridgeJson<T>(path: string, body: unknown): Promise<T> {
+  return __internal_requestBridgeJson(getGhostscriptApiBaseUrl(), path, body);
 }

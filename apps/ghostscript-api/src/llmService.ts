@@ -11,6 +11,7 @@ import {
   getTransportMetadata,
   resolveEncodingConfig,
 } from "./transport";
+import { getModelRuntimeDiagnostics } from "./runtimeDiagnostics";
 
 type BridgeMode = "rank-local" | "passthrough";
 
@@ -51,6 +52,7 @@ export class LlmService {
       transportProtocolVersion: TRANSPORT_PROTOCOL_VERSION,
       supportedConfigIds: SUPPORTED_TRANSPORT_CONFIG_IDS,
       configured: Boolean(openai),
+      runtime: getModelRuntimeDiagnostics(),
     };
   }
 

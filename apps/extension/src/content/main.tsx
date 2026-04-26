@@ -33,6 +33,21 @@ const NATIVE_TEXTBOX_PREVIOUS_CARET_COLOR_DATASET_KEY = "ghostscriptPreviousCare
 
 type ComposerMode = "encrypted" | "normal";
 
+function getUserFacingSendStatus(error: string | null) {
+  if (!error) {
+    return "Ghostscript send failed.";
+  }
+
+  if (
+    error.includes("Unable to reach the Ghostscript API") ||
+    error.includes("API may have crashed")
+  ) {
+    return "Ghostscript API is unavailable.";
+  }
+
+  return "Ghostscript send failed.";
+}
+
 function canUseChromeStorageObserver() {
   try {
     return typeof chrome !== "undefined" && !!chrome.runtime?.id && !!chrome.storage?.onChanged;
@@ -117,7 +132,7 @@ function GhostscriptComposerOverlay({ onLayoutChange }: { onLayoutChange: () => 
             setSendError(conversation.pendingSend.error);
             break;
           case "failed":
-            setSendStatus("Ghostscript send failed.");
+            setSendStatus(getUserFacingSendStatus(conversation.pendingSend.error));
             setSendError(conversation.pendingSend.error);
             break;
         }
@@ -207,8 +222,9 @@ function GhostscriptComposerOverlay({ onLayoutChange }: { onLayoutChange: () => 
       setSendStatus("Waiting for Discord to confirm the previous Ghostscript message...");
       scheduleConversationSync();
     } catch (error) {
-      setSendError(error instanceof Error ? error.message : "Ghostscript send failed.");
-      setSendStatus("Ghostscript send failed.");
+      const message = error instanceof Error ? error.message : "Ghostscript send failed.";
+      setSendError(message);
+      setSendStatus(getUserFacingSendStatus(message));
       setSendLocked(false);
     }
   }

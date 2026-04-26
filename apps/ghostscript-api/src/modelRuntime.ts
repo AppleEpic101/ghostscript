@@ -1,6 +1,5 @@
 import { AutoModelForCausalLM, AutoTokenizer } from "@huggingface/transformers";
-
-const MODEL_DEVICE_OVERRIDE = process.env.GHOSTSCRIPT_MODEL_DEVICE?.trim().toLowerCase() ?? "";
+import { resolveCandidateDevices } from "./runtimeDiagnostics";
 
 type SupportedDevice = "auto" | "gpu" | "cpu" | "webgpu" | "cuda" | "dml" | "coreml";
 
@@ -38,55 +37,6 @@ export async function loadCausalLmContext(modelId: string): Promise<LoadedCausal
     `Failed to load ${modelId} on any supported device. Attempts: ${failures.join(" | ") || "none"}.`,
   );
 }
-
-function resolveCandidateDevices(): SupportedDevice[] {
-  const override = normalizeDeviceAlias(MODEL_DEVICE_OVERRIDE);
-  if (override) {
-    return dedupeDevices([override, ...getPlatformPreferredDevices()]);
-  }
-
-  return getPlatformPreferredDevices();
-}
-
-function getPlatformPreferredDevices(): SupportedDevice[] {
-  switch (process.platform) {
-    case "darwin":
-      return ["coreml", "cpu", "webgpu"];
-    case "win32":
-      return ["dml", "webgpu", "cpu"];
-    case "linux":
-      return process.arch === "x64" ? ["cuda", "webgpu", "cpu"] : ["webgpu", "cpu"];
-    default:
-      return ["cpu"];
-  }
-}
-
-function normalizeDeviceAlias(value: string): SupportedDevice | null {
-  switch (value) {
-    case "":
-      return null;
-    case "mps":
-      return "coreml";
-    case "auto":
-    case "gpu":
-    case "cpu":
-    case "webgpu":
-    case "cuda":
-    case "dml":
-    case "coreml":
-      return value;
-    default:
-      console.warn(
-        `[ghostscript] Ignoring unsupported GHOSTSCRIPT_MODEL_DEVICE="${value}". Falling back to platform detection.`,
-      );
-      return null;
-  }
-}
-
-function dedupeDevices(devices: SupportedDevice[]) {
-  return Array.from(new Set(devices));
-}
-
 function getModelLoadOptions(device: SupportedDevice) {
   if (device === "coreml") {
     // CoreML fails on Xenova/distilgpt2's merged decoder because the merged graph expects

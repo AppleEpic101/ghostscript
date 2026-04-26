@@ -69,7 +69,8 @@ const EMPTY_STATE: GhostscriptState = {
   conversationsByThreadId: {},
 };
 
-const PENDING_SEND_STALE_AFTER_MS = 30_000;
+const DISCORD_CONFIRM_PENDING_STALE_AFTER_MS = 2 * 60_000;
+const CONFIRMED_SEND_STALE_AFTER_MS = 30_000;
 
 export async function readGhostscriptState(): Promise<GhostscriptState> {
   const state = await readStorageValue<GhostscriptState>(GHOSTSCRIPT_STATE_STORAGE_KEY);
@@ -192,7 +193,17 @@ export function isPendingSendStale(
     return true;
   }
 
-  return now - pendingSend.startedAt > PENDING_SEND_STALE_AFTER_MS;
+  const ageMs = now - pendingSend.startedAt;
+  switch (pendingSend.status) {
+    case "encoding":
+    case "failed":
+      return false;
+    case "awaiting-discord-confirm":
+    case "deleted-due-to-race":
+      return ageMs > DISCORD_CONFIRM_PENDING_STALE_AFTER_MS;
+    case "confirmed":
+      return ageMs > CONFIRMED_SEND_STALE_AFTER_MS;
+  }
 }
 
 export async function markSuppressedMessage(threadId: string, discordMessageId: string) {
