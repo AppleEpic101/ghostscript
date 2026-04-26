@@ -4,7 +4,7 @@ import { getCurrentDiscordThreadId, getDiscordNativeTextbox } from "../lib/disco
 import { isPendingSendStale, readConversationState, setPendingSend } from "../lib/ghostscriptState";
 import { sendEncryptedGhostscriptMessage, syncGhostscriptConversation } from "../lib/ghostscriptMessaging";
 import { getInviteSessionStatus } from "../lib/pairingApi";
-import { applyInviteSessionSnapshot, readExtensionState } from "../lib/pairingStore";
+import { applyInviteSessionSnapshot, readExtensionState, storeAiModeEnabled } from "../lib/pairingStore";
 import overlayStyles from "./styles.css?inline";
 
 const COMPOSER_OVERLAY_HOST_ID = "ghostscript-composer-overlay-root";
@@ -46,6 +46,7 @@ function GhostscriptComposerOverlay({ onLayoutChange }: { onLayoutChange: () => 
   const [encryptedDraft, setEncryptedDraft] = useState("");
   const [normalDraft, setNormalDraft] = useState("");
   const [coverTopic, setCoverTopic] = useState("Not set yet");
+  const [aiModeEnabled, setAiModeEnabled] = useState(true);
   const [sendStatus, setSendStatus] = useState("Ready to encrypt.");
   const [sendError, setSendError] = useState<string | null>(null);
   const [sendLocked, setSendLocked] = useState(false);
@@ -62,6 +63,7 @@ function GhostscriptComposerOverlay({ onLayoutChange }: { onLayoutChange: () => 
         }
 
         setCoverTopic(state.activePairing?.defaultCoverTopic ?? state.contacts[0]?.defaultCoverTopic ?? "Not set yet");
+        setAiModeEnabled(state.aiModeEnabled);
 
         const threadId = getCurrentDiscordThreadId();
         if (!threadId) {
@@ -101,7 +103,7 @@ function GhostscriptComposerOverlay({ onLayoutChange }: { onLayoutChange: () => 
         );
         switch (conversation.pendingSend.status) {
           case "encoding":
-            setSendStatus("Generating natural cover text...");
+            setSendStatus(state.aiModeEnabled ? "Generating natural cover text..." : "Preparing secure visible payload...");
             setSendError(null);
             break;
           case "awaiting-discord-confirm":
@@ -179,7 +181,7 @@ function GhostscriptComposerOverlay({ onLayoutChange }: { onLayoutChange: () => 
     }
 
     setSendError(null);
-    setSendStatus("Generating natural cover text...");
+    setSendStatus(aiModeEnabled ? "Generating natural cover text..." : "Preparing secure visible payload...");
     setSendLocked(true);
 
     try {
@@ -201,6 +203,7 @@ function GhostscriptComposerOverlay({ onLayoutChange }: { onLayoutChange: () => 
         pairing: activePairing,
         localUsername,
         partnerUsername,
+        aiModeEnabled: state.aiModeEnabled,
       });
 
       setEncryptedDraft("");
@@ -244,8 +247,27 @@ function GhostscriptComposerOverlay({ onLayoutChange }: { onLayoutChange: () => 
         {isEncryptedMode ? (
           <>
             <label className="ghostscript-composer-label" htmlFor="ghostscript-composer-textarea">
-              {`End-to-end draft · Topic: ${coverTopic}`}
+              {`End-to-end draft · ${aiModeEnabled ? `AI cover text · Topic: ${coverTopic}` : "Visible ASCII payload"}`}
             </label>
+            <div className="ghostscript-composer-toggle-row">
+              <div className="ghostscript-composer-toggle-copy">
+                <strong>AI mode</strong>
+                <span>{aiModeEnabled ? "On: AI cover text + hidden payload" : "Off: visible ASCII payload message"}</span>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={aiModeEnabled}
+                className={`ghostscript-composer-toggle ${aiModeEnabled ? "ghostscript-composer-toggle--active" : ""}`}
+                onClick={() => {
+                  const nextValue = !aiModeEnabled;
+                  setAiModeEnabled(nextValue);
+                  void storeAiModeEnabled(nextValue);
+                }}
+              >
+                <span className="ghostscript-composer-toggle__thumb" />
+              </button>
+            </div>
             <textarea
               id="ghostscript-composer-textarea"
               ref={textareaRef}
@@ -254,7 +276,7 @@ function GhostscriptComposerOverlay({ onLayoutChange }: { onLayoutChange: () => 
               onChange={(event) => {
                 setActiveDraft(event.target.value);
               }}
-              placeholder="Type the message you want Ghostscript to encrypt."
+              placeholder={aiModeEnabled ? "Type the message you want Ghostscript to encrypt." : "Type the message you want Ghostscript to encrypt into a visible payload."}
               spellCheck={false}
               onKeyDown={(event) => {
                 if ((event.metaKey || event.ctrlKey) && event.key === "Enter" && !sendLocked) {

@@ -61,6 +61,7 @@ export interface ExtensionState {
   profile: {
     discordUsername: string;
   } | null;
+  aiModeEnabled: boolean;
   activePairing: ActivePairingState | null;
   contacts: PairedContact[];
   drafts: PopupDraftState | null;

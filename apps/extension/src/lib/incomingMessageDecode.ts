@@ -2,6 +2,7 @@ import { deserializeEnvelopeFromBitstring } from "./bitstream";
 import { decompressBitstringFromTransport } from "./bitCompression";
 import type { SessionCryptoMaterial } from "./crypto";
 import { extractInvisiblePayload } from "./invisibleTransport";
+import { extractVisibleTransportPayload } from "./visibleTransport";
 
 export type IncomingMessageDecodeResult =
   | {
@@ -20,7 +21,7 @@ export async function attemptIncomingMessageDecode(params: {
   material: SessionCryptoMaterial;
   decryptEnvelope: (envelope: ReturnType<typeof deserializeEnvelopeFromBitstring>, material: SessionCryptoMaterial) => Promise<string>;
 }) {
-  const extracted = extractInvisiblePayload(params.messageText);
+  const extracted = extractVisibleTransportPayload(params.messageText) ?? extractInvisiblePayload(params.messageText);
   if (!extracted) {
     return null;
   }

@@ -8,6 +8,7 @@ import {
   clearInviteDraft,
   endLocalPairing,
   readExtensionState,
+  storeAiModeEnabled,
   storeCreatedInvite,
   storeDiscordUsername,
   storeInviteDraft,
@@ -23,6 +24,7 @@ function PopupApp() {
   const [discordUsername, setDiscordUsername] = useState("");
   const [inviteCode, setInviteCode] = useState("");
   const [coverTopic, setCoverTopic] = useState("");
+  const [aiModeEnabled, setAiModeEnabled] = useState(true);
   const [step, setStep] = useState<PopupStep>("home");
   const [requestStatus, setRequestStatus] = useState<RequestStatus>("idle");
   const [feedback, setFeedback] = useState<string | null>(null);
@@ -89,6 +91,7 @@ function PopupApp() {
   async function hydrateFromState() {
     const state = await readExtensionState();
     setDiscordUsername(state.profile?.discordUsername ?? "");
+    setAiModeEnabled(state.aiModeEnabled);
     setInviteCode(state.drafts?.inviteCode ?? "");
 
     if (!state.activePairing) {
@@ -298,6 +301,28 @@ function PopupApp() {
       <p className="popup-copy">
         Ghostscript pairs you with one other person so Discord only sees normal-looking cover text while the pairing service keeps the shared connection state in sync.
       </p>
+
+      <section className="popup-card popup-card--settings">
+        <div className="popup-toggle-row">
+          <div className="popup-toggle-copy">
+            <strong>AI mode</strong>
+            <span>{aiModeEnabled ? "On: AI cover text + hidden payload" : "Off: visible ASCII payload message"}</span>
+          </div>
+          <button
+            className={`popup-toggle ${aiModeEnabled ? "popup-toggle--active" : ""}`}
+            type="button"
+            role="switch"
+            aria-checked={aiModeEnabled}
+            onClick={() => {
+              const nextValue = !aiModeEnabled;
+              setAiModeEnabled(nextValue);
+              void storeAiModeEnabled(nextValue);
+            }}
+          >
+            <span className="popup-toggle__thumb" />
+          </button>
+        </div>
+      </section>
 
       {lobbyInviteCode ? (
         <section className="popup-card popup-card--lobby">

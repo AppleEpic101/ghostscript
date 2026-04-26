@@ -33,6 +33,7 @@ import { logGhostscriptDebug } from "./debugLog";
 import { appendInvisiblePayload, stripTransportPayload } from "./invisibleTransport";
 import { readExtensionState } from "./pairingStore";
 import { countFilteredPromptMessages, filterPromptMessages } from "./promptHistory";
+import { encodeVisibleTransportPayload } from "./visibleTransport";
 
 const DISCORD_MAX_MESSAGE_LENGTH = 2000;
 const PENDING_SEND_MATCH_CLOCK_SKEW_MS = 15_000;
@@ -42,11 +43,13 @@ export async function sendEncryptedGhostscriptMessage(params: {
   pairing: ActivePairingState;
   localUsername: string;
   partnerUsername: string;
+  aiModeEnabled: boolean;
 }) {
   const threadId = getRequiredThreadId();
   logGhostscriptDebug("messaging", "send-start", {
     threadId,
     sessionId: params.pairing.session.id,
+    aiModeEnabled: params.aiModeEnabled,
     localUsername: params.localUsername,
     partnerUsername: params.partnerUsername,
     plaintext: params.plaintext,
@@ -109,34 +112,29 @@ export async function sendEncryptedGhostscriptMessage(params: {
     const envelope = await encryptMessageEnvelope(params.plaintext, msgId, material);
     const envelopeBitstring = serializeEnvelopeToBitstring(envelope);
     const compressedTransport = await compressBitstringForTransport(envelopeBitstring);
-    const contextWindow = buildBoundedConversationWindow(promptMessages);
-    const coverTopic = params.pairing.defaultCoverTopic ?? "general chat";
-    const recentMessages = buildCoverTextMessages({
-      contextWindow,
-    });
-    logGhostscriptDebug("messaging", "send-cover-context-built", {
-      coverTopic: params.pairing.defaultCoverTopic ?? "general chat",
-      threadId,
-      sessionId: params.pairing.session.id,
-      recentMessageCount: recentMessages.length,
-    });
-    const coverText = await generateCoverText({
-      coverTopic,
-      recentMessages,
-    });
-    const submittedText = appendInvisiblePayload(coverText.visibleText, compressedTransport.bitstring);
+    const submission = params.aiModeEnabled
+      ? await buildAiModeSubmission({
+          compressedTransportBitstring: compressedTransport.bitstring,
+          coverTopic: params.pairing.defaultCoverTopic ?? "general chat",
+          promptMessages,
+          threadId,
+          sessionId: params.pairing.session.id,
+        })
+      : buildVisiblePayloadSubmission(compressedTransport.bitstring);
+    const submittedText = submission.submittedText;
     logGhostscriptDebug("messaging", "send-bitstring-compressed", {
       threadId,
       sessionId: params.pairing.session.id,
+      aiModeEnabled: params.aiModeEnabled,
       originalBitLength: envelopeBitstring.length,
       framedBitLength: compressedTransport.framedBitLength,
       compressionFormat: compressedTransport.format,
     });
     const encodedMessage = {
       submittedText,
-      visibleText: coverText.visibleText,
-      coverTextGenerator: coverText.generator,
-      modelId: coverText.model,
+      visibleText: submission.visibleText,
+      coverTextGenerator: submission.generator,
+      modelId: submission.model,
       msgId,
       transportProtocolVersion: getTransportProtocolVersion(),
     };
@@ -165,11 +163,12 @@ export async function sendEncryptedGhostscriptMessage(params: {
     logGhostscriptDebug("messaging", "send-discord-submit-complete", {
       threadId,
       sessionId: params.pairing.session.id,
-      visibleText: coverText.visibleText,
-      visibleTextLength: coverText.visibleText.length,
+      aiModeEnabled: params.aiModeEnabled,
+      visibleText: submission.visibleText,
+      visibleTextLength: submission.visibleText.length,
       submittedTextLength: submittedText.length,
     });
-    return { visibleText: coverText.visibleText };
+    return { visibleText: submission.visibleText };
   } catch (error) {
     logGhostscriptDebug("messaging", "send-failed", {
       threadId,
@@ -483,6 +482,47 @@ function getRequiredThreadId() {
 
 function getPairingEstablishedAt(pairing: ActivePairingState) {
   return pairing.session.joinedAt ?? pairing.session.createdAt;
+}
+
+async function buildAiModeSubmission(params: {
+  compressedTransportBitstring: string;
+  coverTopic: string;
+  promptMessages: GhostscriptThreadMessage[];
+  threadId: string;
+  sessionId: string;
+}) {
+  const contextWindow = buildBoundedConversationWindow(params.promptMessages);
+  const recentMessages = buildCoverTextMessages({
+    contextWindow,
+  });
+  logGhostscriptDebug("messaging", "send-cover-context-built", {
+    coverTopic: params.coverTopic,
+    threadId: params.threadId,
+    sessionId: params.sessionId,
+    recentMessageCount: recentMessages.length,
+  });
+  const coverText = await generateCoverText({
+    coverTopic: params.coverTopic,
+    recentMessages,
+  });
+
+  return {
+    submittedText: appendInvisiblePayload(coverText.visibleText, params.compressedTransportBitstring),
+    visibleText: coverText.visibleText,
+    generator: coverText.generator,
+    model: coverText.model,
+  };
+}
+
+function buildVisiblePayloadSubmission(compressedTransportBitstring: string) {
+  const visiblePayload = encodeVisibleTransportPayload(compressedTransportBitstring);
+
+  return {
+    submittedText: visiblePayload,
+    visibleText: visiblePayload,
+    generator: "visible-ascii-transport",
+    model: "visible-ascii-transport",
+  };
 }
 
 export function isMatchingPendingOutgoingMessage(

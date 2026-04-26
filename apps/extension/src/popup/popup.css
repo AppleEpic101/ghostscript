@@ -85,10 +85,72 @@ textarea {
   gap: 12px;
 }
 
+.popup-card--settings {
+  padding: 14px 16px;
+}
+
 .popup-card + .popup-card,
 .popup-card + .popup-feedback,
 .popup-feedback + .popup-feedback {
   margin-top: 12px;
+}
+
+.popup-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.popup-toggle-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.popup-toggle-copy strong {
+  color: #ffffff;
+  font-size: 13px;
+}
+
+.popup-toggle-copy span {
+  color: #b5bac1;
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.popup-toggle {
+  position: relative;
+  flex: 0 0 auto;
+  width: 46px;
+  height: 28px;
+  appearance: none;
+  border: 0;
+  border-radius: 999px;
+  background: #1e1f22;
+  cursor: pointer;
+  transition: background-color 120ms ease, opacity 120ms ease;
+}
+
+.popup-toggle--active {
+  background: #5865f2;
+}
+
+.popup-toggle__thumb {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+  transition: transform 120ms ease;
+}
+
+.popup-toggle--active .popup-toggle__thumb {
+  transform: translateX(18px);
 }
 
 .popup-label {

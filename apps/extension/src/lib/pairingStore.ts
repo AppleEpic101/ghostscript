@@ -10,6 +10,7 @@ import { readStorageValue, writeStorageValue } from "./storage";
 const PROFILE_STORAGE_KEY = "ghostscript-extension-profile";
 const DRAFT_STORAGE_KEY = "ghostscript-extension-drafts";
 const PAIRING_CACHE_STORAGE_KEY = "ghostscript-extension-pairing-cache";
+const AI_MODE_STORAGE_KEY = "ghostscript-extension-ai-mode-enabled";
 
 interface PairingCacheState {
   activePairing: ActivePairingState | null;
@@ -18,24 +19,31 @@ interface PairingCacheState {
 
 const EMPTY_STATE: ExtensionState = {
   profile: null,
+  aiModeEnabled: true,
   activePairing: null,
   contacts: [],
   drafts: null,
 };
 
 export async function readExtensionState(): Promise<ExtensionState> {
-  const [profile, drafts, pairingCache] = await Promise.all([
+  const [profile, drafts, pairingCache, aiModeEnabled] = await Promise.all([
     readStorageValue<ExtensionState["profile"]>(PROFILE_STORAGE_KEY),
     readStorageValue<ExtensionState["drafts"]>(DRAFT_STORAGE_KEY),
     readStorageValue<PairingCacheState>(PAIRING_CACHE_STORAGE_KEY),
+    readStorageValue<boolean>(AI_MODE_STORAGE_KEY),
   ]);
 
   return {
     profile: profile ?? EMPTY_STATE.profile,
+    aiModeEnabled: aiModeEnabled ?? EMPTY_STATE.aiModeEnabled,
     drafts: drafts ?? EMPTY_STATE.drafts,
     activePairing: normalizeActivePairing(pairingCache?.activePairing ?? EMPTY_STATE.activePairing),
     contacts: normalizeContacts(pairingCache?.contacts ?? EMPTY_STATE.contacts),
   };
+}
+
+export async function storeAiModeEnabled(aiModeEnabled: boolean) {
+  await writeStorageValue(AI_MODE_STORAGE_KEY, aiModeEnabled);
 }
 
 export async function storeDiscordUsername(discordUsername: string) {

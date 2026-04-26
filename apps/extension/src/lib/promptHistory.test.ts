@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import type { EncodedGhostscriptMessage, GhostscriptThreadMessage } from "@ghostscript/shared";
 import type { GhostscriptConversationState } from "./ghostscriptState";
 import { collectKnownCoverTexts, filterPromptMessages } from "./promptHistory";
+import { encodeVisibleTransportPayload } from "./visibleTransport";
 
 test("filterPromptMessages removes recognized Ghostscript cover text and preserves normal chat", () => {
   const recognizedVisibleText = "That sounds good, I can stop by after work.";
@@ -73,6 +74,22 @@ test("collectKnownCoverTexts keeps failed send cover text so retries do not lear
   const texts = collectKnownCoverTexts(conversation);
 
   assert.equal(texts.has(failedVisibleText), true);
+});
+
+test("filterPromptMessages removes recognized visible ASCII payload messages from future AI context", () => {
+  const visiblePayload = encodeVisibleTransportPayload("01010111000011110000111100000000");
+  const conversation = createConversation({
+    confirmedEncodedMessages: [createEncodedMessage(visiblePayload)],
+  });
+  const messages = [
+    createMessage("100", "alice", visiblePayload, "outgoing"),
+    createMessage("101", "bob", "that was quick", "incoming"),
+  ];
+
+  assert.deepEqual(
+    filterPromptMessages(messages, conversation).map((message) => message.discordMessageId),
+    ["101"],
+  );
 });
 
 function createConversation(
