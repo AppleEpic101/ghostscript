@@ -15,6 +15,7 @@ import {
   cacheConversationMessages,
   getLocalIdentityBundle,
   isPendingSendStale,
+  type PendingSendState,
   type DecodedGhostscriptMessageState,
   reserveNextMessageId,
   readConversationState,
@@ -29,11 +30,12 @@ import {
   getTransportProtocolVersion,
 } from "./llmBridge";
 import { logGhostscriptDebug } from "./debugLog";
-import { appendInvisiblePayload } from "./invisibleTransport";
+import { appendInvisiblePayload, stripTransportPayload } from "./invisibleTransport";
 import { readExtensionState } from "./pairingStore";
 import { countFilteredPromptMessages, filterPromptMessages } from "./promptHistory";
 
 const DISCORD_MAX_MESSAGE_LENGTH = 2000;
+const PENDING_SEND_MATCH_CLOCK_SKEW_MS = 15_000;
 
 export async function sendEncryptedGhostscriptMessage(params: {
   plaintext: string;
@@ -247,12 +249,7 @@ async function reconcilePendingSend(messages: GhostscriptThreadMessage[]) {
     return;
   }
 
-  const matchingOutgoingMessage = messages.find(
-    (message) =>
-      message.direction === "outgoing" &&
-      message.text.trim() === pendingSend.expectedCoverText &&
-      Date.parse(message.snowflakeTimestamp) >= pendingSend.startedAt,
-  );
+  const matchingOutgoingMessage = messages.find((message) => isMatchingPendingOutgoingMessage(message, pendingSend));
 
   if (matchingOutgoingMessage) {
     if (pendingSend.encodedMessage) {
@@ -512,4 +509,38 @@ function getRequiredThreadId() {
 
 function getPairingEstablishedAt(pairing: ActivePairingState) {
   return pairing.session.joinedAt ?? pairing.session.createdAt;
+}
+
+export function isMatchingPendingOutgoingMessage(
+  message: GhostscriptThreadMessage,
+  pendingSend: Pick<PendingSendState, "expectedCoverText" | "startedAt">,
+) {
+  if (message.direction !== "outgoing") {
+    return false;
+  }
+
+  const messageTimestamp = Date.parse(message.snowflakeTimestamp);
+  if (
+    Number.isFinite(messageTimestamp) &&
+    messageTimestamp < pendingSend.startedAt - PENDING_SEND_MATCH_CLOCK_SKEW_MS
+  ) {
+    return false;
+  }
+
+  const normalizedMessageText = normalizePendingSendMatchText(message.text);
+  const normalizedMessageVisibleText = normalizePendingSendMatchText(stripTransportPayload(message.text));
+  const normalizedExpectedText = normalizePendingSendMatchText(pendingSend.expectedCoverText);
+  const normalizedExpectedVisibleText = normalizePendingSendMatchText(
+    stripTransportPayload(pendingSend.expectedCoverText),
+  );
+
+  return (
+    normalizedMessageText === normalizedExpectedText ||
+    normalizedMessageText === normalizedExpectedVisibleText ||
+    normalizedMessageVisibleText === normalizedExpectedVisibleText
+  );
+}
+
+function normalizePendingSendMatchText(value: string) {
+  return value.trim();
 }
