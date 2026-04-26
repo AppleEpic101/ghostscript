@@ -36,6 +36,23 @@ test("encode returns non-empty cover text", async () => {
   assert.equal(typeof response.generator, "string");
 });
 
+test("template cover text avoids generic stock phrasing and can pivot from the recent message", async () => {
+  const service = new LlmService();
+
+  const response = await service.encode({
+    coverTopic: "late night food runs",
+    recentMessages: [
+      "Alice: that place was way louder than i expected",
+      "Bob: honestly the fries were carrying the whole experience",
+    ],
+  });
+
+  assert.match(response.visibleText, /late night food runs|fries|louder|experience/i);
+  assert.doesNotMatch(response.visibleText, /\bvibe\b/i);
+  assert.doesNotMatch(response.visibleText, /\bcircle back\b/i);
+  assert.doesNotMatch(response.visibleText, /\bfor now\b/i);
+});
+
 test("decode is no longer supported", async () => {
   const service = new LlmService();
 

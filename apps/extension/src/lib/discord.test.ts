@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { classifyTwoPartyAuthors, filterEligibleTwoPartyMessages, resolveDiscordMessageId, sendTextThroughDiscord } from "./discord";
+import { classifyTwoPartyAuthors, extractMessageText, filterEligibleTwoPartyMessages, resolveDiscordMessageId, sendTextThroughDiscord } from "./discord";
+import { appendInvisiblePayload } from "./invisibleTransport";
 
 test("classifyTwoPartyAuthors matches punctuation and spacing differences in Discord names", () => {
   const classification = classifyTwoPartyAuthors(
@@ -144,6 +145,28 @@ test("resolveDiscordMessageId prefers a nested real message id over the thread w
     }),
     "1498000000000000002",
   );
+});
+
+test("extractMessageText preserves an invisible Ghostscript payload from textContent even when innerText omits it", () => {
+  const visibleText = "coffee later still works for me";
+  const encodedText = appendInvisiblePayload(visibleText, "0101011100");
+  const element = {
+    innerText: visibleText,
+    textContent: encodedText,
+    querySelector: () => null,
+  } as unknown as HTMLElement;
+
+  assert.equal(extractMessageText(element), encodedText);
+});
+
+test("extractMessageText still returns ordinary visible text for normal Discord messages", () => {
+  const element = {
+    innerText: "just a normal message",
+    textContent: "just a normal message",
+    querySelector: () => null,
+  } as unknown as HTMLElement;
+
+  assert.equal(extractMessageText(element), "just a normal message");
 });
 
 test("sendTextThroughDiscord replaces an existing draft before submitting", async () => {

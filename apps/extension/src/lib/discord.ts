@@ -5,6 +5,7 @@ import {
 } from "./decodedMessages";
 import { logGhostscriptDebug } from "./debugLog";
 import { setDecodedMessageActiveView } from "./ghostscriptState";
+import { extractInvisiblePayload } from "./invisibleTransport";
 
 const MESSAGE_CONTAINER_SELECTORS = [
   'li[id^="chat-messages-"]',
@@ -544,16 +545,31 @@ function extractAuthorUsername(element: HTMLElement) {
   return "";
 }
 
-function extractMessageText(element: HTMLElement) {
+export function extractMessageText(element: HTMLElement) {
   for (const selector of CONTENT_SELECTORS) {
     const candidate = element.querySelector<HTMLElement>(selector);
-    const text = candidate?.innerText?.trim();
+    const text = candidate ? extractTransportAwareText(candidate) : "";
     if (text) {
       return text;
     }
   }
 
-  return element.innerText.trim();
+  return extractTransportAwareText(element);
+}
+
+function extractTransportAwareText(element: HTMLElement) {
+  const visibleText = normalizeExtractedText(element.innerText);
+  const rawText = normalizeExtractedText(element.textContent ?? "");
+
+  if (rawText && extractInvisiblePayload(rawText)) {
+    return rawText;
+  }
+
+  return visibleText || rawText;
+}
+
+function normalizeExtractedText(value: string) {
+  return value.replace(/\r\n/g, "\n").trim();
 }
 
 function getSnowflakeTimestamp(discordMessageId: string) {

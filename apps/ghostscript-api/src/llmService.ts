@@ -90,25 +90,102 @@ function sanitizeRecentMessages(recentMessages: string[] | undefined) {
 }
 
 function buildCoverTextPrompt(coverTopic: string, recentMessages: string[]) {
+  const topic = coverTopic.trim();
   return [
     "You generate one ordinary-looking Discord message.",
-    "The message is only cover text and should read like normal casual chat.",
+    "The message is only cover text and should read like a real casual DM between two people who already know each other.",
     "Do not mention encryption, hidden text, steganography, protocols, or instructions.",
-    "Use plain chat language. No lists, titles, or explanations.",
-    "Keep it short enough for a normal Discord message.",
-    `Topic: ${coverTopic.trim()}`,
-    recentMessages.length > 0 ? `Recent messages:\n${recentMessages.join("\n")}` : "",
+    "Use plain chat language. No lists, titles, summaries, or explanations.",
+    "Sound natural, specific, and a little varied instead of generic or assistant-like.",
+    "Match the rhythm of an ongoing conversation: react to the recent messages, add a detail, opinion, question, or small pivot.",
+    "It is okay to drift naturally into a nearby topic if that feels human, as long as the message still makes sense as a reply in the same chat.",
+    "Avoid cliches like 'sounds good', 'for now', 'vibe', 'circle back', or anything that reads templated.",
+    "Keep it to one or two sentences and under 30 words unless the recent chat clearly runs longer.",
+    `Loose topic to draw from: ${topic}`,
+    recentMessages.length > 0
+      ? `Recent chat history:\n${recentMessages.join("\n")}\n\nWrite the next single message in that conversation.`
+      : "Write the first casual message in that conversation, sounding like a real person rather than a generic placeholder.",
   ]
     .filter(Boolean)
     .join("\n\n");
 }
 
 function buildTemplateCoverText(coverTopic: string, recentMessages: string[]) {
-  const normalizedTopic = coverTopic.replace(/\s+/g, " ").trim().toLowerCase();
-  const recentTail = recentMessages[recentMessages.length - 1]?.replace(/^.*?:\s*/, "") ?? "";
-  const tail = recentTail ? ` ${recentTail.slice(0, 40).replace(/[.!?]+$/g, "")}` : "";
+  const normalizedTopic = normalizeTopic(coverTopic);
+  const recentTail = recentMessages[recentMessages.length - 1]?.replace(/^.*?:\s*/, "").trim() ?? "";
+  const priorTail = recentMessages[recentMessages.length - 2]?.replace(/^.*?:\s*/, "").trim() ?? "";
+  const recentHook = pickRecentHook(recentTail, priorTail);
+  const pivot = pickTopicPivot(normalizedTopic);
+  const closer = pickCloser(recentTail);
 
-  return `That fits the ${normalizedTopic} vibe, we can keep it easy${tail ? ` and circle back on ${tail}` : " for now"}.`;
+  return [recentHook, pivot, closer].filter(Boolean).join(" ");
+}
+
+function normalizeTopic(value: string) {
+  return value.replace(/\s+/g, " ").trim().toLowerCase();
+}
+
+function pickRecentHook(recentTail: string, priorTail: string) {
+  const seed = (recentTail || priorTail).replace(/[.!?]+$/g, "");
+  if (!seed) {
+    return "I keep thinking about that for some reason.";
+  }
+
+  const compact = truncateAtWordBoundary(seed, 52);
+  const lower = compact.charAt(0).toLowerCase() + compact.slice(1);
+
+  return [
+    `Honestly ${lower} kind of sent me.`,
+    `Wait, ${lower} is still stuck in my head.`,
+    `Okay but ${lower} is weirdly making more sense now.`,
+  ][hashString(seed) % 3];
+}
+
+function pickTopicPivot(topic: string) {
+  const pivots = [
+    `It also made me think about ${topic} again.`,
+    `Now I kind of want to veer into ${topic} for a second.`,
+    `Which somehow loops back to ${topic}.`,
+    `Anyway that pulls me back to ${topic}.`,
+  ];
+
+  return pivots[hashString(topic) % pivots.length];
+}
+
+function pickCloser(recentTail: string) {
+  const options = recentTail.endsWith("?")
+    ? [
+        "I feel like that would make the whole thing more fun.",
+        "That would probably make the conversation way less boring.",
+        "I could actually see that turning into a whole tangent.",
+      ]
+    : [
+        "Now I'm curious where you'd take that next.",
+        "It feels like that could spiral into a much better side topic.",
+        "That kind of makes me want the next part of the story.",
+      ];
+
+  return options[hashString(recentTail || options[0]) % options.length];
+}
+
+function truncateAtWordBoundary(value: string, limit: number) {
+  if (value.length <= limit) {
+    return value;
+  }
+
+  const truncated = value.slice(0, limit).trimEnd();
+  const lastSpace = truncated.lastIndexOf(" ");
+  return (lastSpace > 16 ? truncated.slice(0, lastSpace) : truncated).trimEnd();
+}
+
+function hashString(value: string) {
+  let hash = 0;
+
+  for (const char of value) {
+    hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
+  }
+
+  return hash;
 }
 
 function extractResponseText(response: {
