@@ -4,6 +4,7 @@ import type {
   SupportedTransportConfigId,
 } from "@ghostscript/shared";
 import { deserializeEnvelopeFromBitstring } from "./bitstream";
+import { decompressBitstringFromTransport } from "./bitCompression";
 import type { SessionCryptoMaterial } from "./crypto";
 import { buildConversationPrompt, type DecodeVisibleTextParams } from "./llmBridge";
 
@@ -76,7 +77,7 @@ export async function attemptIncomingMessageDecode(params: {
       }
 
       try {
-        const envelope = deserializeEnvelopeFromBitstring(bitstring);
+        const envelope = await deserializeEnvelopeFromTransportBitstring(bitstring);
         const plaintext = await params.decryptEnvelope(envelope, params.material);
         params.onAttempt?.({
           outcome: "decoded",
@@ -91,7 +92,7 @@ export async function attemptIncomingMessageDecode(params: {
         };
       } catch {
         try {
-          deserializeEnvelopeFromBitstring(bitstring);
+          await deserializeEnvelopeFromTransportBitstring(bitstring);
           params.onAttempt?.({
             outcome: "tampered",
             configId: encodingConfig.configId,
@@ -116,4 +117,12 @@ export async function attemptIncomingMessageDecode(params: {
     promptFingerprint: tamperedPromptFingerprint,
     configId: tamperedConfigId,
   };
+}
+
+async function deserializeEnvelopeFromTransportBitstring(bitstring: string) {
+  try {
+    return deserializeEnvelopeFromBitstring(await decompressBitstringFromTransport(bitstring));
+  } catch {
+    return deserializeEnvelopeFromBitstring(bitstring);
+  }
 }

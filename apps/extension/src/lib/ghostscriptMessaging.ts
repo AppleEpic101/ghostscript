@@ -1,5 +1,6 @@
 import type { ActivePairingState, EncodedGhostscriptMessage, GhostscriptThreadMessage } from "@ghostscript/shared";
 import { estimateWordTarget, serializeEnvelopeToBitstring } from "./bitstream";
+import { compressBitstringForTransport } from "./bitCompression";
 import { decryptMessageEnvelope, encryptMessageEnvelope, type SessionCryptoMaterial } from "./crypto";
 import { buildDecodeHistoryWindows } from "./decodedMessages";
 import {
@@ -103,9 +104,10 @@ export async function sendEncryptedGhostscriptMessage(params: {
 
   try {
     const envelope = await encryptMessageEnvelope(params.plaintext, msgId, material);
-    const bitstring = serializeEnvelopeToBitstring(envelope);
+    const envelopeBitstring = serializeEnvelopeToBitstring(envelope);
+    const compressedTransport = await compressBitstringForTransport(envelopeBitstring);
     const encodingConfig = getDefaultEncodingConfig();
-    const wordTarget = estimateWordTarget(bitstring.length, encodingConfig.bitsPerStep);
+    const wordTarget = estimateWordTarget(compressedTransport.bitstring.length, encodingConfig.bitsPerStep);
     const prompt = buildConversationPrompt({
       coverTopic: params.pairing.defaultCoverTopic ?? "general chat",
       messages: buildBoundedConversationWindow(promptMessages),
@@ -118,9 +120,16 @@ export async function sendEncryptedGhostscriptMessage(params: {
     });
     const visibleText = await encodeBitstringAsCoverText({
       prompt,
-      bitstring,
+      bitstring: compressedTransport.bitstring,
       wordTarget,
       config: encodingConfig,
+    });
+    logGhostscriptDebug("messaging", "send-bitstring-compressed", {
+      threadId,
+      sessionId: params.pairing.session.id,
+      originalBitLength: envelopeBitstring.length,
+      framedBitLength: compressedTransport.framedBitLength,
+      compressionFormat: compressedTransport.format,
     });
     const encodedMessage = {
       visibleText,

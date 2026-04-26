@@ -1,6 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  __internal_decodePlaintextPayload,
+  __internal_encodePlaintextPayload,
   createWrappingSecret,
   decryptMessageEnvelope,
   encryptMessageEnvelope,
@@ -48,6 +50,50 @@ test("x25519 + hkdf + xchacha20poly1305 envelopes decrypt across both peers", as
 
   assert.equal(plaintext, "Meet near the station after seven.");
   assert.notEqual(envelope.ciphertext, nextEnvelope.ciphertext);
+});
+
+test("plaintext payload wrapper uses deflate when it beats raw and roundtrips exactly", () => {
+  const plaintext = "hello hello hello hello hello hello hello hello";
+  const encoded = __internal_encodePlaintextPayload(plaintext);
+  const decoded = __internal_decodePlaintextPayload(encoded);
+  const rawUtf8Length = new TextEncoder().encode(plaintext).length;
+
+  assert.equal(decoded, plaintext);
+  assert.ok(encoded.length < rawUtf8Length + 6, `expected compressed payload to beat raw wrapper for repetitive text`);
+});
+
+test("decrypt remains compatible with legacy raw-utf8 payload encoding", async () => {
+  const alice = await generateIdentityBundle();
+  const bob = await generateIdentityBundle();
+  const sessionId = "session-legacy";
+  const threadId = "thread-legacy";
+
+  const aliceMaterial: SessionCryptoMaterial = {
+    sessionId,
+    threadId,
+    localParticipantId: "alice",
+    counterpartParticipantId: "bob",
+    localTransportPrivateKey: alice.transportPrivateKey,
+    counterpartTransportPublicKey: bob.transportPublicKey,
+  };
+  const bobMaterial: SessionCryptoMaterial = {
+    sessionId,
+    threadId,
+    localParticipantId: "bob",
+    counterpartParticipantId: "alice",
+    localTransportPrivateKey: bob.transportPrivateKey,
+    counterpartTransportPublicKey: alice.transportPublicKey,
+  };
+
+  const envelope = await encryptMessageEnvelope(
+    "legacy payload still works",
+    21,
+    aliceMaterial,
+    { legacyPayloadEncoding: true },
+  );
+  const plaintext = await decryptMessageEnvelope(envelope, bobMaterial);
+
+  assert.equal(plaintext, "legacy payload still works");
 });
 
 test("tampered ciphertext fails closed", async () => {

@@ -1,10 +1,14 @@
 import nacl from "tweetnacl";
+import { deflateSync, inflateSync } from "fflate";
 import type { MessageEnvelope } from "@ghostscript/shared";
 import { logGhostscriptDebug } from "./debugLog";
 
 const ENVELOPE_VERSION = 1 as const;
 const WRAPPED_IDENTITY_VERSION = 1 as const;
 const WRAP_IV_BYTES = 12;
+const PLAINTEXT_PAYLOAD_MAGIC = "GSCP1";
+const PLAINTEXT_FORMAT_RAW = 0;
+const PLAINTEXT_FORMAT_DEFLATE = 1;
 
 export interface SessionCryptoMaterial {
   sessionId: string;
@@ -141,6 +145,9 @@ export async function encryptMessageEnvelope(
   plaintext: string,
   msgId: number,
   material: SessionCryptoMaterial,
+  options?: {
+    legacyPayloadEncoding?: boolean;
+  },
 ): Promise<MessageEnvelope> {
   logGhostscriptDebug("crypto", "encrypt-start", {
     sessionId: material.sessionId,
@@ -164,6 +171,9 @@ export async function encryptMessageEnvelope(
     msgId,
   );
   const cryptoKey = await crypto.subtle.importKey("raw", key, "AES-GCM", false, ["encrypt"]);
+  const encodedPlaintext = options?.legacyPayloadEncoding
+    ? new TextEncoder().encode(plaintext)
+    : encodePlaintextPayload(plaintext);
   const ciphertext = await crypto.subtle.encrypt(
     {
       name: "AES-GCM",
@@ -172,7 +182,7 @@ export async function encryptMessageEnvelope(
       tagLength: 128,
     },
     cryptoKey,
-    new TextEncoder().encode(plaintext),
+    encodedPlaintext,
   );
 
   const envelope = {
@@ -189,6 +199,7 @@ export async function encryptMessageEnvelope(
     recipientId: material.counterpartParticipantId,
     msgId,
     ciphertextLength: envelope.ciphertext.length,
+    payloadEncoding: options?.legacyPayloadEncoding ? "legacy-raw-utf8" : "compressed-default",
   });
 
   return envelope;
@@ -226,7 +237,7 @@ export async function decryptMessageEnvelope(
       cryptoKey,
       base64ToArrayBuffer(envelope.ciphertext),
     );
-    const decodedPlaintext = new TextDecoder().decode(plaintext);
+    const decodedPlaintext = decodePlaintextPayload(new Uint8Array(plaintext));
 
     logGhostscriptDebug("crypto", "decrypt-complete", {
       sessionId: material.sessionId,
@@ -356,6 +367,14 @@ function encodeAdditionalData(threadId: string, senderId: string, recipientId: s
   return new TextEncoder().encode(`ghostscript:v${ENVELOPE_VERSION}:${threadId}:${senderId}:${recipientId}:${msgId}`);
 }
 
+export function __internal_encodePlaintextPayload(plaintext: string) {
+  return encodePlaintextPayload(plaintext);
+}
+
+export function __internal_decodePlaintextPayload(bytes: Uint8Array) {
+  return decodePlaintextPayload(bytes);
+}
+
 function xorBytes(left: Uint8Array, right: Uint8Array) {
   const output = new Uint8Array(left.length);
   for (let index = 0; index < left.length; index += 1) {
@@ -403,4 +422,55 @@ function toHex(bytes: Uint8Array) {
 
 function toBufferSource(bytes: Uint8Array) {
   return Uint8Array.from(bytes);
+}
+
+function encodePlaintextPayload(plaintext: string) {
+  const rawBytes = new TextEncoder().encode(plaintext);
+  const rawWrapped = wrapPlaintextPayload(PLAINTEXT_FORMAT_RAW, rawBytes);
+  const deflatedWrapped = wrapPlaintextPayload(PLAINTEXT_FORMAT_DEFLATE, deflateSync(rawBytes));
+  return deflatedWrapped.length < rawWrapped.length ? deflatedWrapped : rawWrapped;
+}
+
+function decodePlaintextPayload(bytes: Uint8Array) {
+  if (!hasPlaintextPayloadMagic(bytes)) {
+    return new TextDecoder().decode(bytes);
+  }
+
+  const format = bytes[PLAINTEXT_PAYLOAD_MAGIC.length];
+  const payload = bytes.slice(PLAINTEXT_PAYLOAD_MAGIC.length + 1);
+  const decodedBytes = format === PLAINTEXT_FORMAT_DEFLATE
+    ? inflateSync(payload)
+    : format === PLAINTEXT_FORMAT_RAW
+      ? payload
+      : fail("Unknown Ghostscript plaintext payload format.");
+
+  return new TextDecoder().decode(decodedBytes);
+}
+
+function wrapPlaintextPayload(format: number, payload: Uint8Array) {
+  const magicBytes = new TextEncoder().encode(PLAINTEXT_PAYLOAD_MAGIC);
+  const output = new Uint8Array(magicBytes.length + 1 + payload.length);
+  output.set(magicBytes, 0);
+  output[magicBytes.length] = format;
+  output.set(payload, magicBytes.length + 1);
+  return output;
+}
+
+function hasPlaintextPayloadMagic(bytes: Uint8Array) {
+  const magicBytes = new TextEncoder().encode(PLAINTEXT_PAYLOAD_MAGIC);
+  if (bytes.length < magicBytes.length + 1) {
+    return false;
+  }
+
+  for (let index = 0; index < magicBytes.length; index += 1) {
+    if (bytes[index] !== magicBytes[index]) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function fail(message: string): never {
+  throw new Error(message);
 }

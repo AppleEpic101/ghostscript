@@ -11,6 +11,10 @@ import {
   estimateWordTarget,
   serializeEnvelopeToBitstring,
 } from "../apps/extension/src/lib/bitstream";
+import {
+  compressBitstringForTransport,
+  decompressBitstringFromTransport,
+} from "../apps/extension/src/lib/bitCompression";
 import { buildConversationPrompt } from "../apps/extension/src/lib/llmBridge";
 import { filterPromptMessages } from "../apps/extension/src/lib/promptHistory";
 import { buildBoundedConversationWindow } from "../apps/extension/src/lib/discord";
@@ -46,20 +50,22 @@ test("encrypted envelopes survive rank-selection transport end to end", async ()
   };
 
   const envelope = await encryptMessageEnvelope("Okay, station works.", 11, aliceMaterial);
-  const bitstring = serializeEnvelopeToBitstring(envelope);
+  const bitstring = await compressBitstringForTransport(serializeEnvelopeToBitstring(envelope));
   const visibleText = encodeBitstringAsRankedText({
     prompt,
-    bitstring,
-    wordTarget: estimateWordTarget(bitstring.length, 3),
+    bitstring: bitstring.bitstring,
+    wordTarget: estimateWordTarget(bitstring.bitstring.length, 3),
   });
   const decodedBitstring = decodeRankedTextToBitstring({
     prompt,
     visibleText,
   });
 
-  assert.equal(decodedBitstring, bitstring);
+  assert.equal(decodedBitstring, bitstring.bitstring);
 
-  const decodedEnvelope = deserializeEnvelopeFromBitstring(decodedBitstring ?? "");
+  const decodedEnvelope = deserializeEnvelopeFromBitstring(
+    await decompressBitstringFromTransport(decodedBitstring ?? ""),
+  );
   const plaintext = await decryptMessageEnvelope(decodedEnvelope, bobMaterial);
 
   assert.equal(plaintext, "Okay, station works.");
@@ -98,15 +104,15 @@ test("repeated short sends stay under Discord's hard cap instead of compounding 
 
   for (let index = 1; index <= 8; index += 1) {
     const envelope = await encryptMessageEnvelope("a", index, aliceMaterial);
-    const bitstring = serializeEnvelopeToBitstring(envelope);
+    const bitstring = await compressBitstringForTransport(serializeEnvelopeToBitstring(envelope));
     const prompt = buildConversationPrompt({
       coverTopic: "coffee plans",
       messages: buildBoundedConversationWindow(filterPromptMessages(cachedMessages, conversation)),
     });
     const visibleText = encodeBitstringAsRankedText({
       prompt,
-      bitstring,
-      wordTarget: estimateWordTarget(bitstring.length, 3),
+      bitstring: bitstring.bitstring,
+      wordTarget: estimateWordTarget(bitstring.bitstring.length, 3),
     });
 
     lengths.push(visibleText.length);
@@ -170,15 +176,15 @@ test("re-encoding the same message does not keep growing cover text", async () =
 
   for (let index = 1; index <= 8; index += 1) {
     const envelope = await encryptMessageEnvelope(plaintext, index, aliceMaterial);
-    const bitstring = serializeEnvelopeToBitstring(envelope);
+    const bitstring = await compressBitstringForTransport(serializeEnvelopeToBitstring(envelope));
     const prompt = buildConversationPrompt({
       coverTopic: "coffee plans",
       messages: buildBoundedConversationWindow(filterPromptMessages(cachedMessages, conversation)),
     });
     const visibleText = encodeBitstringAsRankedText({
       prompt,
-      bitstring,
-      wordTarget: estimateWordTarget(bitstring.length, 3),
+      bitstring: bitstring.bitstring,
+      wordTarget: estimateWordTarget(bitstring.bitstring.length, 3),
     });
 
     lengths.push(visibleText.length);
@@ -257,15 +263,15 @@ test("failed outgoing cover text in cached history is filtered so retries do not
 
   for (let index = 1; index <= 8; index += 1) {
     const envelope = await encryptMessageEnvelope(plaintext, index, aliceMaterial);
-    const bitstring = serializeEnvelopeToBitstring(envelope);
+    const bitstring = await compressBitstringForTransport(serializeEnvelopeToBitstring(envelope));
     const prompt = buildConversationPrompt({
       coverTopic: "coffee plans",
       messages: buildBoundedConversationWindow(filterPromptMessages(cachedMessages, conversation)),
     });
     const visibleText = encodeBitstringAsRankedText({
       prompt,
-      bitstring,
-      wordTarget: estimateWordTarget(bitstring.length, 3),
+      bitstring: bitstring.bitstring,
+      wordTarget: estimateWordTarget(bitstring.bitstring.length, 3),
     });
 
     lengths.push(visibleText.length);
