@@ -40,3 +40,14 @@ test("extract preserves visible whitespace and unicode characters", () => {
     visibleText,
   });
 });
+
+test("extract tolerates Discord trimming trailing visible whitespace before the marker", () => {
+  const visibleText = "Pool later still sounds good";
+  const combined = appendInvisiblePayload(`${visibleText}  `, "00110011");
+  const trimmedBeforeMarker = combined.replace(`${visibleText}  \u2063\u2064\u2063`, `${visibleText}\u2063\u2064\u2063`);
+
+  assert.deepEqual(extractInvisiblePayload(trimmedBeforeMarker), {
+    bitstring: "00110011",
+    visibleText,
+  });
+});

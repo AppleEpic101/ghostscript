@@ -6,11 +6,13 @@ const VERSION = 1;
 const LENGTH_HEADER_BITS = 32;
 const CODE_UNIT_LENGTH_BITS = 32;
 const TRAILING_NOISE = new Set(["\u200b", "\u200c", "\u200d", "\u2060", "\ufeff"]);
+const MAX_VISIBLE_LENGTH_FALLBACK_DELTA = 8;
 
 export function appendInvisiblePayload(visibleText: string, bitstring: string) {
   assertBitstring(bitstring);
+  const normalizedVisibleText = normalizeTransportVisibleText(visibleText);
   const payload = `${numberToBitstring(VERSION, 8)}${numberToBitstring(bitstring.length, LENGTH_HEADER_BITS)}${bitstring}`;
-  return `${visibleText}${MARKER}${encodeBits(payload)}${SEPARATOR}${numberToInvisibleDigits(visibleText.length)}`;
+  return `${normalizedVisibleText}${MARKER}${encodeBits(payload)}${SEPARATOR}${numberToInvisibleDigits(normalizedVisibleText.length)}`;
 }
 
 export function extractInvisiblePayload(messageText: string) {
@@ -51,15 +53,27 @@ export function extractInvisiblePayload(messageText: string) {
     return null;
   }
 
-  const visibleText = messageText.slice(0, visibleLength);
-  if (`${visibleText}${MARKER}${payloadChunk}${SEPARATOR}${visibleLengthChunk}` !== messageText) {
-    return null;
+  const declaredVisibleText = messageText.slice(0, visibleLength);
+  if (`${declaredVisibleText}${MARKER}${payloadChunk}${SEPARATOR}${visibleLengthChunk}` === messageText) {
+    return {
+      bitstring,
+      visibleText: declaredVisibleText,
+    };
   }
 
-  return {
-    bitstring,
-    visibleText,
-  };
+  const markerVisibleText = messageText.slice(0, markerIndex);
+  if (
+    visibleLength >= markerIndex &&
+    visibleLength - markerIndex <= MAX_VISIBLE_LENGTH_FALLBACK_DELTA &&
+    normalizeTransportVisibleText(markerVisibleText) === markerVisibleText
+  ) {
+    return {
+      bitstring,
+      visibleText: markerVisibleText,
+    };
+  }
+
+  return null;
 }
 
 export function stripTransportPayload(messageText: string) {
@@ -126,6 +140,10 @@ function assertBitstring(bitstring: string) {
 
 function numberToBitstring(value: number, width: number) {
   return value.toString(2).padStart(width, "0");
+}
+
+export function normalizeTransportVisibleText(value: string) {
+  return value.replace(/\r\n/g, "\n").trimEnd();
 }
 
 function fail(message: string): never {

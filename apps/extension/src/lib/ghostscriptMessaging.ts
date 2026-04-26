@@ -30,7 +30,7 @@ import {
   getTransportProtocolVersion,
 } from "./llmBridge";
 import { logGhostscriptDebug } from "./debugLog";
-import { appendInvisiblePayload, stripTransportPayload } from "./invisibleTransport";
+import { appendInvisiblePayload, normalizeTransportVisibleText, stripTransportPayload } from "./invisibleTransport";
 import { readExtensionState } from "./pairingStore";
 import { countFilteredPromptMessages, filterPromptMessages } from "./promptHistory";
 import { encodeVisibleTransportPayload } from "./visibleTransport";
@@ -505,10 +505,11 @@ async function buildAiModeSubmission(params: {
     coverTopic: params.coverTopic,
     recentMessages,
   });
+  const visibleText = normalizeTransportVisibleText(coverText.visibleText);
 
   return {
-    submittedText: appendInvisiblePayload(coverText.visibleText, params.compressedTransportBitstring),
-    visibleText: coverText.visibleText,
+    submittedText: appendInvisiblePayload(visibleText, params.compressedTransportBitstring),
+    visibleText,
     generator: coverText.generator,
     model: coverText.model,
   };
