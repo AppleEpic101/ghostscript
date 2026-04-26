@@ -1,15 +1,11 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import ReactDOM, { type Root } from "react-dom/client";
-import { PAIRING_STATUS_LABELS } from "@ghostscript/shared";
 import { getCurrentDiscordThreadId, getDiscordNativeTextbox } from "../lib/discord";
 import { readConversationState } from "../lib/ghostscriptState";
 import { sendEncryptedGhostscriptMessage, syncGhostscriptConversation } from "../lib/ghostscriptMessaging";
-import { applyInviteSessionSnapshot, readExtensionState } from "../lib/pairingStore";
-import { getInviteSessionStatus } from "../lib/pairingApi";
+import { readExtensionState } from "../lib/pairingStore";
 import overlayStyles from "./styles.css?inline";
 
-const SESSION_SYNC_POLL_MS = 5000;
-const OVERLAY_HOST_ID = "ghostscript-status-root";
 const COMPOSER_OVERLAY_HOST_ID = "ghostscript-composer-overlay-root";
 const CONVERSATION_SPACER_ID = "ghostscript-conversation-spacer";
 const DISCORD_ME_ROUTE_PREFIX = "/channels/@me";
@@ -19,7 +15,6 @@ const COMPOSER_OVERLAY_CONVERSATION_GAP = 14;
 const SCROLLER_BOTTOM_LOCK_THRESHOLD = 48;
 const CONVERSATION_SYNC_DEBOUNCE_MS = 450;
 
-let overlayRoot: Root | null = null;
 let composerOverlayRoot: Root | null = null;
 let routeObserverAbortController: AbortController | null = null;
 let lastKnownRoute = getCurrentRoute();
@@ -30,21 +25,7 @@ let composerOverlayMode: ComposerMode = "encrypted";
 let conversationSyncTimeout: number | null = null;
 let conversationSyncInFlight = false;
 
-interface OverlayState {
-  status: string;
-  contactName: string;
-  coverTopic: string;
-  detail: string;
-}
-
 type ComposerMode = "encrypted" | "normal";
-
-const DEFAULT_OVERLAY_STATE: OverlayState = {
-  status: "Paired",
-  contactName: "Waiting for the other person",
-  coverTopic: "Not set yet",
-  detail: "This connection is ready. Ghostscript no longer waits for a manual verification step.",
-};
 
 function canUseChromeStorageObserver() {
   try {
@@ -52,84 +33,6 @@ function canUseChromeStorageObserver() {
   } catch {
     return false;
   }
-}
-
-function GhostscriptStatusOverlay({ onPairingLost }: { onPairingLost: () => void }) {
-  const [overlayState, setOverlayState] = useState<OverlayState>(DEFAULT_OVERLAY_STATE);
-
-  async function refreshState() {
-    const state = await readExtensionState();
-    const activePairing = state.activePairing;
-    const contact = state.contacts[0] ?? null;
-
-    if (!activePairing || activePairing.status !== "paired") {
-      onPairingLost();
-      return;
-    }
-
-    setOverlayState({
-      status: PAIRING_STATUS_LABELS[activePairing.status],
-      contactName:
-        activePairing.counterpart?.displayName ?? contact?.displayName ?? "Waiting for the other person",
-      coverTopic: activePairing.defaultCoverTopic ?? contact?.defaultCoverTopic ?? "Not set yet",
-      detail: "This connection is ready. Ghostscript no longer waits for a manual verification step.",
-    });
-  }
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const sync = async () => {
-      const state = await readExtensionState();
-      const activePairing = state.activePairing;
-
-      if (!activePairing || activePairing.status !== "paired") {
-        if (!cancelled) {
-          onPairingLost();
-        }
-        return;
-      }
-
-      try {
-        const snapshot = await getInviteSessionStatus(activePairing.inviteCode);
-        await applyInviteSessionSnapshot(snapshot);
-      } catch {
-        // The popup surfaces request errors. The overlay only mirrors the latest known local state.
-      }
-
-      if (!cancelled) {
-        await refreshState();
-      }
-    };
-
-    void sync();
-    const intervalId = window.setInterval(() => {
-      void sync();
-    }, SESSION_SYNC_POLL_MS);
-
-    return () => {
-      cancelled = true;
-      window.clearInterval(intervalId);
-    };
-  }, [onPairingLost]);
-
-  return (
-    <>
-      <style>{overlayStyles}</style>
-      <section className="ghostscript-status-card" aria-label="Ghostscript pairing status">
-        <h2>Ghostscript</h2>
-        <p>{overlayState.detail}</p>
-        <div className="ghostscript-status-meta">
-          <span>Status</span>
-          <strong>{overlayState.status}</strong>
-          <span>Contact</span>
-          <strong>{overlayState.contactName}</strong>
-          <span>Topic</span>
-          <strong>{overlayState.coverTopic}</strong>
-        </div>
-      </section>
-    </>
-  );
 }
 
 function GhostscriptComposerOverlay({ onLayoutChange }: { onLayoutChange: () => void }) {
@@ -348,31 +251,6 @@ function GhostscriptComposerOverlay({ onLayoutChange }: { onLayoutChange: () => 
         ) : null}
       </section>
     </>
-  );
-}
-
-function mountOverlay() {
-  let host = document.getElementById(OVERLAY_HOST_ID);
-
-  if (!host) {
-    host = document.createElement("div");
-    host.id = OVERLAY_HOST_ID;
-    host.className = "ghostscript-status-host";
-    document.body.appendChild(host);
-  }
-
-  if (!overlayRoot) {
-    overlayRoot = ReactDOM.createRoot(host);
-  }
-
-  overlayRoot.render(
-    <React.StrictMode>
-      <GhostscriptStatusOverlay
-        onPairingLost={() => {
-          void syncOverlayVisibility();
-        }}
-      />
-    </React.StrictMode>,
   );
 }
 
@@ -614,12 +492,6 @@ function unmountComposerOverlay() {
   clearConversationSpacer();
 }
 
-function unmountOverlay() {
-  overlayRoot?.unmount();
-  overlayRoot = null;
-  document.getElementById(OVERLAY_HOST_ID)?.remove();
-}
-
 function getCurrentRoute() {
   return `${window.location.pathname}${window.location.search}${window.location.hash}`;
 }
@@ -656,14 +528,12 @@ async function syncOverlayVisibility() {
   }
 
   if (showOverlay) {
-    mountOverlay();
     mountComposerOverlay();
     scheduleComposerOverlaySync();
     scheduleConversationSync();
     return;
   }
 
-  unmountOverlay();
   unmountComposerOverlay();
 }
 
@@ -717,10 +587,8 @@ function installRouteObservers() {
 
   const observer = new MutationObserver(() => {
     handleRouteChange();
-    if (overlayRoot) {
-      scheduleComposerOverlaySync();
-      scheduleConversationSync();
-    }
+    scheduleComposerOverlaySync();
+    scheduleConversationSync();
   });
 
   observer.observe(document, {

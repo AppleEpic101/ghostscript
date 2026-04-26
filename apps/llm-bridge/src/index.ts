@@ -131,7 +131,7 @@ async function handleEncode(body: EncodeRequestBody) {
     temperature: body.config?.temperature ?? 1,
     truncation: "auto",
     store: false,
-    reasoning: { effort: "minimal" },
+    reasoning: { effort: "low" },
   });
   const visibleText = response.output_text.trim();
 
