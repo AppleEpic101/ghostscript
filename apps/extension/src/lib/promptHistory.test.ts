@@ -87,13 +87,13 @@ function createConversation(
 function createEncodedMessage(visibleText: string): EncodedGhostscriptMessage {
   return {
     visibleText,
-    configId: "ghostscript-default-v1",
-    modelId: "xenova-distilgpt2-v1",
-    tokenizerId: "gpt2-tokenizer-v1",
-    transportBackend: "local-gpt2-top4-v1",
+    configId: "ghostscript-openai-v2",
+    modelId: "gpt-4.1-mini",
+    tokenizerId: "o200k_base-v1",
+    transportBackend: "openai-chat-toplogprobs-o200k-v1",
     msgId: 1,
     estimatedWordTarget: 16,
-    transportProtocolVersion: 1,
+    transportProtocolVersion: 2,
     promptFingerprint: "prompt",
   };
 }

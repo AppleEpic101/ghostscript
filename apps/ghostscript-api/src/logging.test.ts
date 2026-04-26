@@ -12,7 +12,7 @@ test("logTerminalEvent emits structured encode lifecycle logs", () => {
   try {
     logTerminalEvent("api", "encode-route-start", {
       promptLength: 128,
-      runtime: { candidateDevices: ["coreml", "cpu"] },
+      runtime: { provider: "openai", tokenizerId: "o200k_base-v1" },
     });
   } finally {
     console.log = originalConsoleLog;

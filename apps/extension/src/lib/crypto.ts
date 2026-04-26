@@ -1,9 +1,9 @@
 import nacl from "tweetnacl";
 import { deflateSync, inflateSync } from "fflate";
-import type { MessageEnvelope } from "@ghostscript/shared";
+import { TRANSPORT_PROTOCOL_VERSION, type MessageEnvelope } from "@ghostscript/shared";
 import { logGhostscriptDebug } from "./debugLog";
 
-const ENVELOPE_VERSION = 1 as const;
+const ENVELOPE_VERSION = TRANSPORT_PROTOCOL_VERSION;
 const WRAPPED_IDENTITY_VERSION = 1 as const;
 const WRAP_IV_BYTES = 12;
 const PLAINTEXT_PAYLOAD_MAGIC = "GSCP1";

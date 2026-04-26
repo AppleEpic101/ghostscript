@@ -50,13 +50,16 @@ At each generation step, given the current token context, the candidate pool `C`
 
 1. **Get logits.** Query `M` with the current context to obtain raw logits over the full vocabulary.
 2. **Apply temperature.** Scale logits by `1/T`, then softmax to obtain probabilities `P`.
-3. **Exclude special tokens.** Remove all token IDs in `X` from consideration.
-4. **Apply probability threshold.** Retain only tokens where `P(t) ≥ p_min`.
-5. **Apply merge-safety filter.** Remove any token `t` where appending `t` to the previous token would not survive a retokenization roundtrip:
+3. **Sort all tokens by descending probability.** This produces a global ranking from most likely to least likely under the current context.
+4. **Scan the ranking top-down.** Consider tokens one by one in descending-probability order and admit a token to the candidate pool only if it passes all required checks:
+   - it is not in the excluded token set `X`
+   - it satisfies the probability threshold `P(t) ≥ p_min`
+   - it passes the merge-safety check
+5. **Apply merge-safety at admission time.** For each candidate token `t`, reject it if appending `t` to the previous token would not survive a retokenization roundtrip:
     ```
     decode([prev_token, t]) retokenized ≠ [prev_token, t]  →  exclude t
     ```
-6. **Sort by descending probability.** The remaining tokens, sorted by `P(t)` descending, form the ordered candidate pool `C = [c₁, c₂, ..., cₖ]`.
+6. **Stop when enough candidates have been admitted.** The ordered candidate pool `C = [c₁, c₂, ..., cₖ]` is the sequence of accepted tokens in the order they were encountered during the descending-probability scan.
 
 The pool must contain at least `2ⁿ` tokens to encode a full `n`-bit chunk. See Section 4.5 for fallback behavior when it does not.
 

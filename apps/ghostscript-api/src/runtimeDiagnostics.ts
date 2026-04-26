@@ -1,16 +1,22 @@
+const DEFAULT_MODEL_ID = process.env.OPENAI_MODEL?.trim() || "gpt-4.1-mini";
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY?.trim() || "";
 const MODEL_DEVICE_OVERRIDE = process.env.GHOSTSCRIPT_MODEL_DEVICE?.trim().toLowerCase() ?? "";
 
 type SupportedDevice = "auto" | "gpu" | "cpu" | "webgpu" | "cuda" | "dml" | "coreml";
 
 export interface ModelRuntimeDiagnostics {
-  deviceOverride: string | null;
-  candidateDevices: SupportedDevice[];
+  apiConfigured: boolean;
+  modelId: string;
+  tokenizerId: string;
+  provider: "openai";
 }
 
 export function getModelRuntimeDiagnostics(): ModelRuntimeDiagnostics {
   return {
-    deviceOverride: MODEL_DEVICE_OVERRIDE || null,
-    candidateDevices: resolveCandidateDevices(),
+    apiConfigured: OPENAI_API_KEY.length > 0,
+    modelId: DEFAULT_MODEL_ID,
+    tokenizerId: "o200k_base-v1",
+    provider: "openai",
   };
 }
 

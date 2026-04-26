@@ -9,7 +9,9 @@ import {
   encodeBitstringAsRankedText,
 } from "../apps/ghostscript-api/src/transport";
 
-test("plaintext survives real local GPT-2 rank-selection transport end to end", async () => {
+const transportTest = process.env.OPENAI_API_KEY ? test : test.skip;
+
+transportTest("plaintext survives OpenAI rank-selection transport end to end", async () => {
   const plaintext = "Okay, station works.";
   const prompt = buildConversationPrompt({
     coverTopic: "weekend plans and coffee shops",
@@ -36,7 +38,7 @@ test("plaintext survives real local GPT-2 rank-selection transport end to end", 
   assert.equal(decodePlaintextFromTransportBitstring(decodedBitstring ?? ""), plaintext);
 });
 
-test("full integration logs direct plaintext transport ratios", async () => {
+transportTest("full integration logs direct plaintext transport ratios", async () => {
   const plaintext = "Meet near the side entrance after dinner so we can talk without the line getting weird.";
   const plaintextUtf8Bits = new TextEncoder().encode(plaintext).length * 8;
   const transportBitstring = encodePlaintextToTransportBitstring(plaintext);
@@ -76,7 +78,7 @@ test("full integration logs direct plaintext transport ratios", async () => {
   );
 });
 
-test("one-word message survives full round trip with direct transport metrics", async () => {
+transportTest("one-word message survives full round trip with direct transport metrics", async () => {
   const plaintext = "hi";
   const plaintextUtf8Bytes = new TextEncoder().encode(plaintext).length;
   const transportBitstring = encodePlaintextToTransportBitstring(plaintext);
@@ -122,7 +124,7 @@ test("one-word message survives full round trip with direct transport metrics", 
   );
 });
 
-test("repeated short sends stay under Discord's hard cap instead of compounding prior cover text", async () => {
+transportTest("repeated short sends stay under Discord's hard cap instead of compounding prior cover text", async () => {
   const conversation = createConversationState();
   const cachedMessages: Array<{
     threadId: string;
@@ -170,7 +172,7 @@ test("repeated short sends stay under Discord's hard cap instead of compounding 
   assert.ok(lengths[lengths.length - 1] <= lengths[0] + 250, `cover text still drifted too far: ${lengths.join(", ")}`);
 });
 
-test("re-encoding the same message does not keep growing cover text", async () => {
+transportTest("re-encoding the same message does not keep growing cover text", async () => {
   const plaintext = "same message";
   const conversation = createConversationState();
   const cachedMessages: Array<{
@@ -218,7 +220,7 @@ test("re-encoding the same message does not keep growing cover text", async () =
   assert.ok(maxLength <= firstLength + 300, `same-message cover text spiked too far: ${lengths.join(", ")}`);
 });
 
-test("failed outgoing cover text in cached history is filtered so retries do not compound", async () => {
+transportTest("failed outgoing cover text in cached history is filtered so retries do not compound", async () => {
   const plaintext = "same message";
   const conversation = createConversationState();
   const cachedMessages: Array<{
@@ -280,13 +282,13 @@ function createConversationState() {
   return {
     confirmedEncodedMessages: [] as Array<{
       visibleText: string;
-      configId: "ghostscript-default-v1";
-      modelId: "xenova-distilgpt2-v1";
-      tokenizerId: "gpt2-tokenizer-v1";
-      transportBackend: "local-gpt2-top4-v1";
+      configId: "ghostscript-openai-v2";
+      modelId: "gpt-4.1-mini";
+      tokenizerId: "o200k_base-v1";
+      transportBackend: "openai-chat-toplogprobs-o200k-v1";
       msgId: number;
       estimatedWordTarget: number;
-      transportProtocolVersion: 1;
+      transportProtocolVersion: 2;
       promptFingerprint: string;
     }>,
     decodedMessages: {},
@@ -308,13 +310,13 @@ function createConversationState() {
 function createEncodedMessage(visibleText: string, msgId: number, estimatedWordTarget: number, promptFingerprint: string) {
   return {
     visibleText,
-    configId: "ghostscript-default-v1" as const,
-    modelId: "xenova-distilgpt2-v1",
-    tokenizerId: "gpt2-tokenizer-v1",
-    transportBackend: "local-gpt2-top4-v1",
+    configId: "ghostscript-openai-v2" as const,
+    modelId: "gpt-4.1-mini",
+    tokenizerId: "o200k_base-v1",
+    transportBackend: "openai-chat-toplogprobs-o200k-v1",
     msgId,
     estimatedWordTarget,
-    transportProtocolVersion: 1 as const,
+    transportProtocolVersion: 2 as const,
     promptFingerprint,
   };
 }

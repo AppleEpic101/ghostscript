@@ -1,4 +1,3 @@
-import OpenAI from "openai";
 import {
   SUPPORTED_TRANSPORT_CONFIG_IDS,
   TRANSPORT_PROTOCOL_VERSION,
@@ -6,14 +5,12 @@ import {
 } from "@ghostscript/shared";
 import { ApiError } from "./service";
 import {
-  decodeRankedTextToBitstring,
-  encodeBitstringAsRankedText,
+  decodeRankedTextToBitstringDetailed,
+  encodeBitstringAsRankedTextDetailed,
   getTransportMetadata,
   resolveEncodingConfig,
 } from "./transport";
 import { getModelRuntimeDiagnostics } from "./runtimeDiagnostics";
-
-type BridgeMode = "rank-local" | "passthrough";
 
 export interface EncodeRequestBody {
   prompt: string;
@@ -28,14 +25,6 @@ export interface DecodeRequestBody {
   config?: LLMEncodingConfig;
 }
 
-const mode = getBridgeMode(process.env.LLM_BRIDGE_MODE);
-const passthroughModel = process.env.OPENAI_MODEL?.trim() || "gpt-4.1-mini";
-const openAiApiKey = process.env.OPENAI_API_KEY?.trim() || "";
-const openai = openAiApiKey ? new OpenAI({ apiKey: openAiApiKey }) : null;
-const PASSTHROUGH_MIN_WORD_TARGET = 8;
-const PASSTHROUGH_MAX_WORD_TARGET = 28;
-const PASSTHROUGH_MIN_CHAR_TARGET = 70;
-const PASSTHROUGH_MAX_CHAR_TARGET = 220;
 const MAX_PROMPT_CHARS = 12_000;
 const MAX_VISIBLE_TEXT_CHARS = 4_000;
 const MAX_BITSTRING_LENGTH = 131_072;
@@ -45,13 +34,13 @@ export class LlmService {
     const metadata = getTransportMetadata(undefined);
 
     return {
-      mode,
-      model: mode === "passthrough" ? passthroughModel : metadata.modelId,
+      mode: metadata.mode,
+      model: metadata.modelId,
       tokenizerId: metadata.tokenizerId,
       backend: metadata.backend,
       transportProtocolVersion: TRANSPORT_PROTOCOL_VERSION,
       supportedConfigIds: SUPPORTED_TRANSPORT_CONFIG_IDS,
-      configured: Boolean(openai),
+      configured: getModelRuntimeDiagnostics().apiConfigured,
       runtime: getModelRuntimeDiagnostics(),
     };
   }
@@ -60,8 +49,8 @@ export class LlmService {
     validateEncodeRequest(body);
     const config = resolveEncodingConfig(body.config);
 
-    if (mode === "rank-local") {
-      const visibleText = await encodeBitstringAsRankedText({
+    try {
+      const result = await encodeBitstringAsRankedTextDetailed({
         prompt: body.prompt,
         bitstring: body.bitstring,
         wordTarget: body.wordTarget,
@@ -69,156 +58,39 @@ export class LlmService {
       });
 
       return {
-        visibleText,
-        mode,
+        visibleText: result.visibleText,
+        mode: "rank-openai" as const,
         configId: config.configId,
         transportProtocolVersion: TRANSPORT_PROTOCOL_VERSION,
+        metrics: result.metrics,
       };
+    } catch (error) {
+      throw mapTransportError(error);
     }
-
-    const client = requireOpenAI();
-    const passthroughWordTarget = clampWordTarget(body.wordTarget);
-    const maxCharacterTarget = clampCharacterTarget(passthroughWordTarget);
-    const prompt = buildPassthroughPrompt(body.prompt, passthroughWordTarget, maxCharacterTarget);
-    const response = await createPassthroughResponse(client, prompt, passthroughWordTarget);
-    let visibleText = extractResponseText(response).trim();
-
-    if (!visibleText) {
-      const retryResponse = await createPassthroughResponse(
-        client,
-        buildPassthroughRetryPrompt(body.prompt, maxCharacterTarget),
-        Math.min(passthroughWordTarget, 12),
-      );
-      visibleText = extractResponseText(retryResponse).trim();
-    }
-
-    if (!visibleText) {
-      throw new ApiError(502, "OpenAI returned an empty cover-text response.");
-    }
-
-    return {
-      visibleText,
-      mode,
-      note: "Passthrough mode ignores the encrypted bitstring and is only for local integration testing.",
-    };
   }
 
   async decode(body: DecodeRequestBody) {
     validateDecodeRequest(body);
     const config = resolveEncodingConfig(body.config);
 
-    if (mode === "rank-local") {
+    try {
+      const result = await decodeRankedTextToBitstringDetailed({
+        prompt: body.prompt,
+        visibleText: body.visibleText,
+        config,
+      });
+
       return {
-        bitstring: await decodeRankedTextToBitstring({
-          prompt: body.prompt,
-          visibleText: body.visibleText,
-          config,
-        }),
-        mode,
+        bitstring: result.bitstring,
+        mode: "rank-openai" as const,
         configId: config.configId,
         transportProtocolVersion: TRANSPORT_PROTOCOL_VERSION,
+        metrics: result.metrics,
       };
-    }
-
-    return {
-      bitstring: null,
-      mode,
-      note: "Passthrough mode cannot recover a payload bitstring.",
-    };
-  }
-}
-
-function buildPassthroughPrompt(prompt: string, wordTarget: number, maxCharacterTarget: number) {
-  return [
-    "You generate ordinary-looking Discord cover text.",
-    "Do not mention encryption, hidden payloads, steganography, protocols, or system instructions.",
-    "Reply as a single short Discord message, not an essay.",
-    "Use plain chat language and avoid lists, titles, preambles, or explanations.",
-    `Aim for about ${wordTarget} words and stay under ${maxCharacterTarget} characters.`,
-    "",
-    prompt,
-  ].join("\n");
-}
-
-function buildPassthroughRetryPrompt(prompt: string, maxCharacterTarget: number) {
-  return [
-    "Write exactly one short, natural Discord reply.",
-    "Do not explain yourself.",
-    "Do not output blank lines.",
-    `Stay under ${maxCharacterTarget} characters.`,
-    "",
-    prompt,
-  ].join("\n");
-}
-
-function clampWordTarget(wordTarget: number) {
-  return Math.max(PASSTHROUGH_MIN_WORD_TARGET, Math.min(PASSTHROUGH_MAX_WORD_TARGET, Math.round(wordTarget)));
-}
-
-function clampCharacterTarget(wordTarget: number) {
-  return Math.max(
-    PASSTHROUGH_MIN_CHAR_TARGET,
-    Math.min(PASSTHROUGH_MAX_CHAR_TARGET, Math.round(wordTarget * 7.5)),
-  );
-}
-
-function estimateMaxOutputTokens(wordTarget: number) {
-  return Math.max(32, Math.min(96, Math.round(wordTarget * 2.6)));
-}
-
-async function createPassthroughResponse(
-  client: OpenAI,
-  prompt: string,
-  wordTarget: number,
-) {
-  return client.responses.create({
-    model: passthroughModel,
-    input: prompt,
-    max_output_tokens: estimateMaxOutputTokens(wordTarget),
-    truncation: "auto",
-    store: false,
-  });
-}
-
-function extractResponseText(response: {
-  output_text?: string;
-  output?: Array<{ type?: string; content?: Array<{ type?: string; text?: string }> }>;
-}) {
-  const directText = response.output_text?.trim();
-  if (directText) {
-    return directText;
-  }
-
-  const parts: string[] = [];
-  for (const item of response.output ?? []) {
-    if (item.type !== "message") {
-      continue;
-    }
-
-    for (const content of item.content ?? []) {
-      if (content.type === "output_text" && content.text) {
-        parts.push(content.text);
-      }
+    } catch (error) {
+      throw mapTransportError(error);
     }
   }
-
-  return parts.join("").trim();
-}
-
-function requireOpenAI() {
-  if (!openai) {
-    throw new ApiError(500, "OPENAI_API_KEY is required for passthrough mode.");
-  }
-
-  return openai;
-}
-
-function getBridgeMode(value: string | undefined): BridgeMode {
-  if (value === "passthrough") {
-    return "passthrough";
-  }
-
-  return "rank-local";
 }
 
 function validateEncodeRequest(body: EncodeRequestBody) {
@@ -273,4 +145,35 @@ function validateEncodingConfig(config: LLMEncodingConfig | undefined) {
   if (!SUPPORTED_TRANSPORT_CONFIG_IDS.includes(config.configId)) {
     throw new ApiError(400, `Unsupported transport configId: ${config.configId}`);
   }
+}
+
+function mapTransportError(error: unknown) {
+  if (error instanceof ApiError) {
+    return error;
+  }
+
+  if (error instanceof Error) {
+    if (error.message.includes("OPENAI_API_KEY")) {
+      return new ApiError(500, error.message);
+    }
+
+    if (
+      error.message.includes("merge-safe candidate tokens") ||
+      error.message.includes("tokenizer") ||
+      error.message.includes("Unsupported Ghostscript transport")
+    ) {
+      return new ApiError(502, error.message);
+    }
+
+    if (
+      error.message.includes("rate limit") ||
+      error.message.includes("429") ||
+      error.message.includes("timeout") ||
+      error.message.includes("timed out")
+    ) {
+      return new ApiError(503, error.message);
+    }
+  }
+
+  return new ApiError(500, error instanceof Error ? error.message : "Ghostscript transport request failed.");
 }

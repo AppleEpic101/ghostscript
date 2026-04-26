@@ -3,15 +3,15 @@ import assert from "node:assert/strict";
 import { DEFAULT_TRANSPORT_CONFIG_ID } from "@ghostscript/shared";
 import { LlmService } from "./llmService";
 
-test("health reports rank-local transport metadata", () => {
+test("health reports rank-openai transport metadata", () => {
   const service = new LlmService();
   const health = service.getHealth();
 
-  assert.equal(health.mode, "rank-local");
-  assert.equal(health.transportProtocolVersion, 1);
+  assert.equal(health.mode, "rank-openai");
+  assert.equal(health.transportProtocolVersion, 2);
   assert.deepEqual(health.supportedConfigIds, [DEFAULT_TRANSPORT_CONFIG_ID]);
-  assert.ok(Array.isArray(health.runtime.candidateDevices));
-  assert.ok(health.runtime.candidateDevices.length > 0);
+  assert.equal(health.runtime.provider, "openai");
+  assert.equal(health.runtime.tokenizerId, "o200k_base-v1");
 });
 
 test("encode rejects oversized transport inputs", async () => {
@@ -28,20 +28,6 @@ test("encode rejects oversized transport inputs", async () => {
   );
 });
 
-test("encode accepts small advisory word targets for rank-local transport", async () => {
-  const service = new LlmService();
-  const bitstring = "000000000000000000000000000100000110100001101001";
-
-  const response = await service.encode({
-    prompt: "Cover text topic: coffee\nAlice: can you keep this short?",
-    bitstring,
-    wordTarget: 3,
-  });
-
-  assert.equal(typeof response.visibleText, "string");
-  assert.ok(response.visibleText.length > 0);
-});
-
 test("decode rejects unsupported config IDs", async () => {
   const service = new LlmService();
 
@@ -53,9 +39,9 @@ test("decode rejects unsupported config IDs", async () => {
         config: {
           configId: "ghostscript-legacy-v0" as typeof DEFAULT_TRANSPORT_CONFIG_ID,
           provider: "ghostscript-bridge",
-          modelId: "xenova-distilgpt2-v1",
-          tokenizerId: "gpt2-tokenizer-v1",
-          transportBackend: "local-gpt2-top4-v1",
+          modelId: "gpt-4.1-mini",
+          tokenizerId: "o200k_base-v1",
+          transportBackend: "openai-chat-toplogprobs-o200k-v1",
           bitsPerStep: 2,
           excludedTokenSet: ["<|endoftext|>", "<s>", "</s>"],
           fallbackStrategy: "reduce-bits",

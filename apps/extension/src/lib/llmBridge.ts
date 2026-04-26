@@ -14,9 +14,9 @@ import { buildConversationPrompt as buildCanonicalConversationPrompt } from "./p
 const DEFAULT_ENCODING_CONFIG: LLMEncodingConfig = {
   configId: DEFAULT_TRANSPORT_CONFIG_ID,
   provider: "ghostscript-bridge",
-  modelId: "xenova-distilgpt2-v1",
-  tokenizerId: "gpt2-tokenizer-v1",
-  transportBackend: "local-gpt2-top4-v1",
+  modelId: "gpt-4.1-mini",
+  tokenizerId: "o200k_base-v1",
+  transportBackend: "openai-chat-toplogprobs-o200k-v1",
   bitsPerStep: 2,
   excludedTokenSet: ["<|endoftext|>", "<s>", "</s>"],
   fallbackStrategy: "reduce-bits",

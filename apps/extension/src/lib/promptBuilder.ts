@@ -17,7 +17,10 @@ export function buildConversationPrompt(params: PromptBuilderParams) {
     "Reply in approximately the usual Ghostscript message length.",
     "Use only the paired Discord chat history below to stay on-topic.",
     "",
-    orderedLines.join("\n"),
+    "Paired Discord chat history:",
+    orderedLines.join("\n") || "(no prior paired messages)",
+    "",
+    "Next Discord message:",
   ]
     .filter(Boolean)
     .join("\n");

@@ -119,8 +119,8 @@ export type PendingSendStatus =
   | "failed"
   | "deleted-due-to-race";
 
-export type TransportProtocolVersion = 1;
-export type SupportedTransportConfigId = "ghostscript-default-v1";
+export type TransportProtocolVersion = 2;
+export type SupportedTransportConfigId = "ghostscript-openai-v2";
 
 export interface EncodedGhostscriptMessage {
   visibleText: string;

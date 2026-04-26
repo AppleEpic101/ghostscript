@@ -58,6 +58,7 @@ const server = createServer(async (request, response) => {
           configId: body.config?.configId ?? "default",
           visibleTextLength: result.visibleText.length,
           durationMs: Date.now() - startedAt,
+          metrics: "metrics" in result ? result.metrics : undefined,
           runtime,
         });
         sendJson(response, 200, result);
@@ -96,6 +97,7 @@ const server = createServer(async (request, response) => {
           configId: body.config?.configId ?? "default",
           bitstringLength: result.bitstring?.length ?? 0,
           durationMs: Date.now() - startedAt,
+          metrics: "metrics" in result ? result.metrics : undefined,
           runtime,
         });
         sendJson(response, 200, result);
