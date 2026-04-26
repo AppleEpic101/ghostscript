@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  __internal_encodePlaintextPayload,
   decryptMessageEnvelope,
   encryptMessageEnvelope,
   generateIdentityBundle,
@@ -51,12 +52,12 @@ test("encrypted envelopes survive rank-selection transport end to end", async ()
 
   const envelope = await encryptMessageEnvelope("Okay, station works.", 11, aliceMaterial);
   const bitstring = await compressBitstringForTransport(serializeEnvelopeToBitstring(envelope));
-  const visibleText = encodeBitstringAsRankedText({
+  const visibleText = await encodeBitstringAsRankedText({
     prompt,
     bitstring: bitstring.bitstring,
     wordTarget: estimateWordTarget(bitstring.bitstring.length, 3),
   });
-  const decodedBitstring = decodeRankedTextToBitstring({
+  const decodedBitstring = await decodeRankedTextToBitstring({
     prompt,
     visibleText,
   });
@@ -69,6 +70,71 @@ test("encrypted envelopes survive rank-selection transport end to end", async ()
   const plaintext = await decryptMessageEnvelope(decodedEnvelope, bobMaterial);
 
   assert.equal(plaintext, "Okay, station works.");
+});
+
+test("full integration logs plaintext and transport compression ratios", async () => {
+  const alice = await generateIdentityBundle();
+  const bob = await generateIdentityBundle();
+  const plaintextMessage = "Meet near the side entrance after dinner so we can talk without the line getting weird.";
+  const plaintextUtf8Bits = new TextEncoder().encode(plaintextMessage).length * 8;
+  const wrappedPlaintextBits = __internal_encodePlaintextPayload(plaintextMessage).length * 8;
+
+  const aliceMaterial: SessionCryptoMaterial = {
+    sessionId: "session-ratio",
+    threadId: "thread-ratio",
+    localParticipantId: "alice",
+    counterpartParticipantId: "bob",
+    localTransportPrivateKey: alice.transportPrivateKey,
+    counterpartTransportPublicKey: bob.transportPublicKey,
+  };
+  const bobMaterial: SessionCryptoMaterial = {
+    sessionId: "session-ratio",
+    threadId: "thread-ratio",
+    localParticipantId: "bob",
+    counterpartParticipantId: "alice",
+    localTransportPrivateKey: bob.transportPrivateKey,
+    counterpartTransportPublicKey: alice.transportPublicKey,
+  };
+
+  const prompt = [
+    "Cover text topic: dinner plans and crowded stations",
+    "Alice: the line was a mess yesterday",
+    "Bob: yeah we should probably meet somewhere quieter",
+  ].join("\n");
+
+  const envelope = await encryptMessageEnvelope(plaintextMessage, 17, aliceMaterial);
+  const envelopeBitstring = serializeEnvelopeToBitstring(envelope);
+  const compressedTransport = await compressBitstringForTransport(envelopeBitstring);
+  const visibleText = await encodeBitstringAsRankedText({
+    prompt,
+    bitstring: compressedTransport.bitstring,
+    wordTarget: estimateWordTarget(compressedTransport.bitstring.length, 3),
+  });
+  const decodedBitstring = await decodeRankedTextToBitstring({
+    prompt,
+    visibleText,
+  });
+
+  assert.equal(decodedBitstring, compressedTransport.bitstring);
+  const decodedEnvelope = deserializeEnvelopeFromBitstring(
+    await decompressBitstringFromTransport(decodedBitstring ?? ""),
+  );
+  const decryptedPlaintext = await decryptMessageEnvelope(decodedEnvelope, bobMaterial);
+  assert.equal(decryptedPlaintext, plaintextMessage);
+
+  console.log(
+    [
+      "full-integration-ratios",
+      `plaintextUtf8Bits=${plaintextUtf8Bits}`,
+      `wrappedPlaintextBits=${wrappedPlaintextBits}`,
+      `plaintextCompressionRatio=${(wrappedPlaintextBits / plaintextUtf8Bits).toFixed(3)}`,
+      `envelopeBits=${envelopeBitstring.length}`,
+      `transportBits=${compressedTransport.bitstring.length}`,
+      `transportCompressionRatio=${(compressedTransport.bitstring.length / envelopeBitstring.length).toFixed(3)}`,
+      `transportFormat=${compressedTransport.format}`,
+      `visibleChars=${visibleText.length}`,
+    ].join(" | "),
+  );
 });
 
 test("repeated short sends stay under Discord's hard cap instead of compounding prior cover text", async () => {
@@ -109,7 +175,7 @@ test("repeated short sends stay under Discord's hard cap instead of compounding 
       coverTopic: "coffee plans",
       messages: buildBoundedConversationWindow(filterPromptMessages(cachedMessages, conversation)),
     });
-    const visibleText = encodeBitstringAsRankedText({
+    const visibleText = await encodeBitstringAsRankedText({
       prompt,
       bitstring: bitstring.bitstring,
       wordTarget: estimateWordTarget(bitstring.bitstring.length, 3),
@@ -181,7 +247,7 @@ test("re-encoding the same message does not keep growing cover text", async () =
       coverTopic: "coffee plans",
       messages: buildBoundedConversationWindow(filterPromptMessages(cachedMessages, conversation)),
     });
-    const visibleText = encodeBitstringAsRankedText({
+    const visibleText = await encodeBitstringAsRankedText({
       prompt,
       bitstring: bitstring.bitstring,
       wordTarget: estimateWordTarget(bitstring.bitstring.length, 3),
@@ -268,7 +334,7 @@ test("failed outgoing cover text in cached history is filtered so retries do not
       coverTopic: "coffee plans",
       messages: buildBoundedConversationWindow(filterPromptMessages(cachedMessages, conversation)),
     });
-    const visibleText = encodeBitstringAsRankedText({
+    const visibleText = await encodeBitstringAsRankedText({
       prompt,
       bitstring: bitstring.bitstring,
       wordTarget: estimateWordTarget(bitstring.bitstring.length, 3),

@@ -69,6 +69,16 @@ export interface PlaintextRankCompressionStats {
   literalCount: number;
 }
 
+export interface PlaintextRankCompressionTraceStep {
+  index: number;
+  tokenId: number;
+  tokenText: string;
+  rank: number;
+  mode: "short-rank" | "medium-rank" | "literal-token-id";
+  encodedBits: string;
+  usedLiteralFallback: boolean;
+}
+
 export interface PlaintextRankCompressionResult {
   bitstring: string;
   tokenIds: number[];
@@ -186,6 +196,61 @@ export function analyzePlaintextRankCompression(plaintext: string) {
   return compressPlaintextToRankBitstring(plaintext).stats;
 }
 
+export function tracePlaintextRankCompression(plaintext: string) {
+  const tokenIds = model.tokenize(plaintext);
+  const steps: PlaintextRankCompressionTraceStep[] = [];
+
+  for (let index = 0; index < tokenIds.length; index += 1) {
+    const prefix = tokenIds.slice(0, index);
+    const tokenId = tokenIds[index];
+    const rank = model.rankToken(prefix, tokenId);
+
+    if (rank < SHORT_RANK_LIMIT) {
+      steps.push({
+        index,
+        tokenId,
+        tokenText: model.tokenText(tokenId),
+        rank,
+        mode: "short-rank",
+        encodedBits: `0${rank.toString(2).padStart(3, "0")}`,
+        usedLiteralFallback: false,
+      });
+      continue;
+    }
+
+    if (rank < MEDIUM_RANK_LIMIT) {
+      steps.push({
+        index,
+        tokenId,
+        tokenText: model.tokenText(tokenId),
+        rank,
+        mode: "medium-rank",
+        encodedBits: `10${rank.toString(2).padStart(7, "0")}`,
+        usedLiteralFallback: false,
+      });
+      continue;
+    }
+
+    const literalBits = encodeVarintToBitstring(tokenId);
+    steps.push({
+      index,
+      tokenId,
+      tokenText: model.tokenText(tokenId),
+      rank,
+      mode: "literal-token-id",
+      encodedBits: `11${literalBits}`,
+      usedLiteralFallback: true,
+    });
+  }
+
+  return {
+    plaintext,
+    tokenIds,
+    steps,
+    bitstring: steps.map((step) => step.encodedBits).join(""),
+  };
+}
+
 export function compressPlaintextToLayeredRankBitstring(plaintext: string): LayeredPlaintextRankCompressionResult {
   const rankCompressed = compressPlaintextToRankBitstring(plaintext);
   const traditionalCompression = compressBitstringToBase64(rankCompressed.bitstring);
@@ -227,6 +292,22 @@ function writeVarint(writer: BitWriter, value: number) {
   }
 
   writer.writeBits(remaining, 8);
+}
+
+function encodeVarintToBitstring(value: number) {
+  if (!Number.isInteger(value) || value < 0) {
+    throw new Error("Varint values must be non-negative integers.");
+  }
+
+  let remaining = value;
+  let bits = "";
+  while (remaining >= 0x80) {
+    bits += (0x80 | (remaining & 0x7f)).toString(2).padStart(8, "0");
+    remaining >>>= 7;
+  }
+
+  bits += remaining.toString(2).padStart(8, "0");
+  return bits;
 }
 
 function readVarint(reader: BitReader) {
@@ -376,6 +457,15 @@ class PlaintextRankModel {
     if (!Number.isInteger(tokenId) || tokenId < 0 || tokenId >= this.vocabulary.length) {
       throw new Error("Literal token id was outside the model vocabulary.");
     }
+  }
+
+  tokenText(tokenId: number) {
+    const token = this.vocabulary[tokenId];
+    if (!token) {
+      throw new Error("Unknown token id.");
+    }
+
+    return decoder.decode(token.bytes);
   }
 
   private observe(tokenIds: number[]) {

@@ -62,6 +62,28 @@ test("plaintext payload wrapper uses deflate when it beats raw and roundtrips ex
   assert.ok(encoded.length < rawUtf8Length + 6, `expected compressed payload to beat raw wrapper for repetitive text`);
 });
 
+test("plaintext compression pipeline logs before and after bit sequences", () => {
+  const plaintext = "I want to eat pizza.";
+  const rawBytes = new TextEncoder().encode(plaintext);
+  const wrappedBytes = __internal_encodePlaintextPayload(plaintext);
+  const rawBits = bytesToBitstring(rawBytes);
+  const wrappedBits = bytesToBitstring(wrappedBytes);
+
+  console.log(
+    [
+      "plaintext-compression-bits",
+      `plaintext="${plaintext}"`,
+      `rawBits=${rawBits}`,
+      `wrappedBits=${wrappedBits}`,
+      `rawBitLength=${rawBits.length}`,
+      `wrappedBitLength=${wrappedBits.length}`,
+      `ratio=${(wrappedBits.length / rawBits.length).toFixed(3)}`,
+    ].join(" | "),
+  );
+
+  assert.equal(__internal_decodePlaintextPayload(wrappedBytes), plaintext);
+});
+
 test("decrypt remains compatible with legacy raw-utf8 payload encoding", async () => {
   const alice = await generateIdentityBundle();
   const bob = await generateIdentityBundle();
@@ -125,3 +147,7 @@ test("tampered ciphertext fails closed", async () => {
 
   await assert.rejects(() => decryptMessageEnvelope(tamperedEnvelope, bobMaterial));
 });
+
+function bytesToBitstring(bytes: Uint8Array) {
+  return Array.from(bytes, (value) => value.toString(2).padStart(8, "0")).join("");
+}

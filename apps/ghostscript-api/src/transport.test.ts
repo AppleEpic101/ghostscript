@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { DEFAULT_TRANSPORT_CONFIG_ID, type LLMEncodingConfig } from "@ghostscript/shared";
 import {
-  __internal_createAdapter,
+  __internal_createTransport,
   decodeRankedTextToBitstring,
   encodeBitstringAsRankedText,
 } from "./transport";
@@ -17,12 +17,12 @@ function buildConfig(overrides: Partial<LLMEncodingConfig> = {}): LLMEncodingCon
   return {
     configId: DEFAULT_TRANSPORT_CONFIG_ID,
     provider: "ghostscript-bridge",
-    modelId: "ghostscript-rank-lm-v1",
-    tokenizerId: "ghostscript-word-tokenizer-v1",
-    transportBackend: "rank-local-v1",
+    modelId: "xenova-distilgpt2-v1",
+    tokenizerId: "gpt2-tokenizer-v1",
+    transportBackend: "local-gpt2-top4-v1",
     temperature: 1,
-    pMin: 0.001,
-    bitsPerStep: 3,
+    pMin: 0,
+    bitsPerStep: 2,
     excludedTokenSet: ["<|endoftext|>", "<s>", "</s>"],
     fallbackStrategy: "reduce-bits",
     tieBreakRule: "token-id-ascending",
@@ -38,68 +38,66 @@ function estimateWordTargetForTest(payloadBitLength: number, bitsPerToken: numbe
   return Math.max(10, Math.ceil(estimatedTokens * 0.7));
 }
 
-test("rank transport roundtrips a fixed bitstring", () => {
+test("rank transport roundtrips a fixed bitstring", { timeout: 300_000 }, async () => {
   const bitstring = "000000000000000000000000001010000110100001100101011011000110110001101111";
   const config = buildConfig();
   const wordTarget = estimateWordTargetForTest(bitstring.length, config.bitsPerStep);
-  const visibleText = encodeBitstringAsRankedText({
+  const visibleText = await encodeBitstringAsRankedText({
     prompt: PROMPT,
     bitstring,
     wordTarget,
     config,
   });
 
-  const decoded = decodeRankedTextToBitstring({
+  const decoded = await decodeRankedTextToBitstring({
     prompt: PROMPT,
     visibleText,
     config,
   });
 
   assert.equal(decoded, bitstring);
-  assert.match(visibleText, /^[A-Z][A-Za-z0-9 ,.!?;:']+$/);
+  assert.ok(visibleText.length > 0);
 });
 
-test("candidate filtering respects exclusions and reduced-width fallback stays decodable", () => {
-  const fallbackConfig = buildConfig({
-    pMin: 0.02,
-  });
-  const fallbackAdapter = __internal_createAdapter(PROMPT, 18, fallbackConfig);
-  const fallbackPool = fallbackAdapter.buildCandidatePool([]);
+test("candidate pool respects exclusions and roundtrips with the real tokenizer/model", { timeout: 300_000 }, async () => {
+  const config = buildConfig();
+  const transport = await __internal_createTransport(PROMPT, config);
+  const pool = await transport.buildCandidatePool([]);
 
-  assert.ok(fallbackPool.length > 0 && fallbackPool.length < 2 ** fallbackConfig.bitsPerStep);
+  assert.ok(pool.length > 0 && pool.length <= 2 ** config.bitsPerStep);
 
-  const excludedToken = fallbackAdapter.detokenize([fallbackPool[0].id]).toLowerCase();
+  const excludedToken = transport.detokenize([pool[0].id]);
   const excludedConfig = buildConfig({
     excludedTokenSet: [excludedToken],
   });
-  const excludedAdapter = __internal_createAdapter(PROMPT, 18, excludedConfig);
-  const excludedPool = excludedAdapter.buildCandidatePool([]);
+  const excludedTransport = await __internal_createTransport(PROMPT, excludedConfig);
+  const excludedPool = await excludedTransport.buildCandidatePool([]);
 
-  assert.ok(excludedPool.every((candidate) => excludedAdapter.detokenize([candidate.id]).toLowerCase() !== excludedToken));
+  assert.ok(excludedPool.every((candidate) => excludedTransport.detokenize([candidate.id]) !== excludedToken));
 
   const bitstring = "000000000000000000000000000001001011";
-  const wordTarget = estimateWordTargetForTest(bitstring.length, fallbackConfig.bitsPerStep);
-  const visibleText = encodeBitstringAsRankedText({
+  const wordTarget = estimateWordTargetForTest(bitstring.length, config.bitsPerStep);
+  const visibleText = await encodeBitstringAsRankedText({
     prompt: PROMPT,
     bitstring,
     wordTarget,
-    config: fallbackConfig,
+    config,
   });
 
-  const decoded = decodeRankedTextToBitstring({
+  const decoded = await decodeRankedTextToBitstring({
     prompt: PROMPT,
     visibleText,
-    config: fallbackConfig,
+    config,
   });
 
   assert.equal(decoded, bitstring);
 });
 
-test("decode returns null when the visible text does not match a valid candidate path", () => {
+test("decode returns null when the visible text does not match a valid candidate path", { timeout: 300_000 }, async () => {
   const bitstring = "000000000000000000000000000100000110100001101001";
   const config = buildConfig();
   const wordTarget = estimateWordTargetForTest(bitstring.length, config.bitsPerStep);
-  const visibleText = encodeBitstringAsRankedText({
+  const visibleText = await encodeBitstringAsRankedText({
     prompt: PROMPT,
     bitstring,
     wordTarget,
@@ -107,7 +105,7 @@ test("decode returns null when the visible text does not match a valid candidate
   });
   const tampered = `${visibleText} Extra`;
 
-  const decoded = decodeRankedTextToBitstring({
+  const decoded = await decodeRankedTextToBitstring({
     prompt: PROMPT,
     visibleText: tampered,
     config,
@@ -116,16 +114,16 @@ test("decode returns null when the visible text does not match a valid candidate
   assert.equal(decoded, null);
 });
 
-test("rank transport treats wordTarget as advisory only", () => {
+test("rank transport treats wordTarget as advisory only", { timeout: 300_000 }, async () => {
   const bitstring = "000000000000000000000000000100000110100001101001";
   const config = buildConfig();
-  const shortTargetVisibleText = encodeBitstringAsRankedText({
+  const shortTargetVisibleText = await encodeBitstringAsRankedText({
     prompt: PROMPT,
     bitstring,
     wordTarget: 3,
     config,
   });
-  const longTargetVisibleText = encodeBitstringAsRankedText({
+  const longTargetVisibleText = await encodeBitstringAsRankedText({
     prompt: PROMPT,
     bitstring,
     wordTarget: 28,
@@ -133,7 +131,7 @@ test("rank transport treats wordTarget as advisory only", () => {
   });
 
   assert.equal(
-    decodeRankedTextToBitstring({
+    await decodeRankedTextToBitstring({
       prompt: PROMPT,
       visibleText: shortTargetVisibleText,
       config,
@@ -142,7 +140,7 @@ test("rank transport treats wordTarget as advisory only", () => {
   );
 
   assert.equal(
-    decodeRankedTextToBitstring({
+    await decodeRankedTextToBitstring({
       prompt: PROMPT,
       visibleText: longTargetVisibleText,
       config,

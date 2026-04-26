@@ -59,7 +59,7 @@ export class LlmService {
     const config = resolveEncodingConfig(body.config);
 
     if (mode === "rank-local") {
-      const visibleText = encodeBitstringAsRankedText({
+      const visibleText = await encodeBitstringAsRankedText({
         prompt: body.prompt,
         bitstring: body.bitstring,
         wordTarget: body.wordTarget,
@@ -107,7 +107,7 @@ export class LlmService {
 
     if (mode === "rank-local") {
       return {
-        bitstring: decodeRankedTextToBitstring({
+        bitstring: await decodeRankedTextToBitstring({
           prompt: body.prompt,
           visibleText: body.visibleText,
           config,

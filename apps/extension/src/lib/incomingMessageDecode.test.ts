@@ -42,7 +42,7 @@ test("incoming decode succeeds with cached history when the visible DOM history 
   });
   const envelope = await encryptMessageEnvelope("Meet by the side entrance.", 11, aliceMaterial);
   const bitstring = await compressBitstringForTransport(serializeEnvelopeToBitstring(envelope));
-  const visibleText = encodeBitstringAsRankedText({
+  const visibleText = await encodeBitstringAsRankedText({
     prompt,
     bitstring: bitstring.bitstring,
     wordTarget: estimateWordTarget(bitstring.bitstring.length, config.bitsPerStep),
@@ -101,7 +101,7 @@ test("incoming decode succeeds for the first post-pairing message with no prior 
   });
   const envelope = await encryptMessageEnvelope("Meet by the side entrance.", 11, aliceMaterial);
   const bitstring = await compressBitstringForTransport(serializeEnvelopeToBitstring(envelope));
-  const visibleText = encodeBitstringAsRankedText({
+  const visibleText = await encodeBitstringAsRankedText({
     prompt,
     bitstring: bitstring.bitstring,
     wordTarget: estimateWordTarget(bitstring.bitstring.length, config.bitsPerStep),
@@ -160,7 +160,7 @@ test("incoming decode remains compatible with legacy uncompressed transport bits
   });
   const envelope = await encryptMessageEnvelope("Meet by the side entrance.", 11, aliceMaterial);
   const legacyBitstring = serializeEnvelopeToBitstring(envelope);
-  const visibleText = encodeBitstringAsRankedText({
+  const visibleText = await encodeBitstringAsRankedText({
     prompt,
     bitstring: legacyBitstring,
     wordTarget: estimateWordTarget(legacyBitstring.length, config.bitsPerStep),
