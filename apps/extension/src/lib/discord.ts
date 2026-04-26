@@ -275,12 +275,43 @@ export async function sendTextThroughDiscord(text: string) {
   }
 
   textbox.focus();
-  selectAllEditableText(textbox);
+  const existingText = extractEditableText(textbox).trim();
+  logGhostscriptDebug("discord", "composer-write-start", {
+    existingLength: existingText.length,
+    nextLength: text.length,
+  });
 
-  if (!document.execCommand("insertText", false, text)) {
-    textbox.textContent = text;
+  clearDiscordComposerText(textbox);
+  const clearedText = extractEditableText(textbox).trim();
+  logGhostscriptDebug("discord", "composer-cleared", {
+    existingLength: existingText.length,
+    clearedLength: clearedText.length,
+  });
+
+  if (clearedText.length > 0) {
+    throw new Error("Discord composer did not clear the existing draft cleanly.");
   }
-  dispatchEditableInputEvents(textbox, text);
+
+  insertDiscordComposerText(textbox, text);
+  const insertedText = extractEditableText(textbox).trim();
+  const replacementSucceeded = insertedText === text.trim();
+  logGhostscriptDebug("discord", "composer-inserted", {
+    insertedLength: insertedText.length,
+    expectedLength: text.length,
+    replacementSucceeded,
+  });
+
+  if (!replacementSucceeded) {
+    if (existingText && (insertedText.startsWith(existingText) || insertedText.includes(existingText))) {
+      logGhostscriptDebug("discord", "composer-append-suspected", {
+        previousLength: existingText.length,
+        insertedLength: insertedText.length,
+        expectedLength: text.length,
+      });
+    }
+
+    throw new Error("Discord composer did not replace the existing draft cleanly.");
+  }
 
   dispatchEnterKey(textbox, "keydown");
   dispatchEnterKey(textbox, "keypress");
@@ -592,6 +623,36 @@ function selectAllEditableText(element: HTMLElement) {
   range.selectNodeContents(element);
   selection.removeAllRanges();
   selection.addRange(range);
+}
+
+function clearDiscordComposerText(textbox: HTMLElement) {
+  const currentText = extractEditableText(textbox);
+  if (!currentText) {
+    return;
+  }
+
+  selectAllEditableText(textbox);
+
+  if (!document.execCommand("delete", false)) {
+    textbox.textContent = "";
+  }
+
+  dispatchEditableInputEvents(textbox, "");
+
+  if (extractEditableText(textbox)) {
+    textbox.textContent = "";
+    dispatchEditableInputEvents(textbox, "");
+  }
+}
+
+function insertDiscordComposerText(textbox: HTMLElement, text: string) {
+  selectAllEditableText(textbox);
+
+  if (!document.execCommand("insertText", false, text)) {
+    textbox.textContent = text;
+  }
+
+  dispatchEditableInputEvents(textbox, text);
 }
 
 function dispatchEnterKey(target: HTMLElement, type: "keydown" | "keypress" | "keyup") {

@@ -1,4 +1,4 @@
-import type { ActivePairingState, GhostscriptThreadMessage } from "@ghostscript/shared";
+import type { ActivePairingState, EncodedGhostscriptMessage, GhostscriptThreadMessage } from "@ghostscript/shared";
 import { estimateWordTarget, serializeEnvelopeToBitstring } from "./bitstream";
 import { decryptMessageEnvelope, encryptMessageEnvelope, type SessionCryptoMaterial } from "./crypto";
 import { buildDecodeHistoryWindows } from "./decodedMessages";
@@ -34,7 +34,7 @@ import {
 } from "./llmBridge";
 import { logGhostscriptDebug } from "./debugLog";
 import { readExtensionState } from "./pairingStore";
-import { filterPromptMessages } from "./promptHistory";
+import { countFilteredPromptMessages, filterPromptMessages } from "./promptHistory";
 
 const DISCORD_MAX_MESSAGE_LENGTH = 2000;
 
@@ -76,9 +76,19 @@ export async function sendEncryptedGhostscriptMessage(params: {
   await cacheConversationMessages(threadId, conversationMessages);
   const conversation = await readConversationState(threadId);
   const promptMessages = filterPromptMessages(conversation.cachedMessages, conversation);
+  const filteredPromptMessageCount = countFilteredPromptMessages(conversation.cachedMessages, conversation);
+  logGhostscriptDebug("messaging", "send-prompt-history-filtered", {
+    threadId,
+    sessionId: params.pairing.session.id,
+    cachedMessageCount: conversation.cachedMessages.length,
+    promptMessageCount: promptMessages.length,
+    filteredPromptMessageCount,
+  });
 
   const material = await getSessionCryptoMaterial(params.pairing);
   const msgId = await reserveNextMessageId(threadId);
+  let attemptedCoverText = "";
+  let attemptedEncodedMessage: EncodedGhostscriptMessage | null = null;
 
   await setPendingSend(threadId, {
     threadId,
@@ -118,6 +128,8 @@ export async function sendEncryptedGhostscriptMessage(params: {
       transportProtocolVersion: getTransportProtocolVersion(),
       promptFingerprint: await fingerprintTransportPrompt(prompt),
     };
+    attemptedCoverText = visibleText;
+    attemptedEncodedMessage = encodedMessage;
 
     if (visibleText.length > DISCORD_MAX_MESSAGE_LENGTH) {
       throw new Error(
@@ -150,12 +162,15 @@ export async function sendEncryptedGhostscriptMessage(params: {
       sessionId: params.pairing.session.id,
       error: error instanceof Error ? error.message : "Ghostscript send failed.",
     });
+    if (attemptedEncodedMessage) {
+      await storeConfirmedEncodedMessage(threadId, attemptedEncodedMessage);
+    }
     await setPendingSend(threadId, {
       threadId,
       sessionId: params.pairing.session.id,
       status: "failed",
-      expectedCoverText: "",
-      encodedMessage: null,
+      expectedCoverText: attemptedCoverText,
+      encodedMessage: attemptedEncodedMessage,
       startedAt: Date.now(),
       msgId,
       error: error instanceof Error ? error.message : "Ghostscript send failed.",
@@ -195,6 +210,13 @@ export async function syncGhostscriptConversation(params: {
 
   await reconcilePendingSend(messages);
   const conversation = await readConversationState(threadId);
+  const filteredPromptMessageCount = countFilteredPromptMessages(conversation.cachedMessages, conversation);
+  logGhostscriptDebug("messaging", "sync-prompt-history-filtered", {
+    threadId,
+    sessionId: params.pairing.session.id,
+    cachedMessageCount: conversation.cachedMessages.length,
+    filteredPromptMessageCount,
+  });
   await applySuppressedMessages(threadId);
   await decodeIncomingMessages(params, messages, conversation.suppressedMessageIds);
   await restoreDecodedMessageOverlays(threadId, messages);

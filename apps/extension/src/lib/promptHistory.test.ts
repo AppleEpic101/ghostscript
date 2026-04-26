@@ -53,6 +53,26 @@ test("collectKnownCoverTexts includes decoded incoming and pending send cover te
   assert.equal(texts.has(pendingVisibleText), true);
 });
 
+test("collectKnownCoverTexts keeps failed send cover text so retries do not learn from it", () => {
+  const failedVisibleText = "I can probably head over once the line settles down a little.";
+  const conversation = createConversation({
+    pendingSend: {
+      threadId: "thread-1",
+      sessionId: "session-1",
+      status: "failed",
+      expectedCoverText: failedVisibleText,
+      encodedMessage: createEncodedMessage(failedVisibleText),
+      startedAt: Date.now(),
+      msgId: 2,
+      error: "Discord rejected the draft.",
+    },
+  });
+
+  const texts = collectKnownCoverTexts(conversation);
+
+  assert.equal(texts.has(failedVisibleText), true);
+});
+
 function createConversation(
   overrides: Partial<GhostscriptConversationState>,
 ): Pick<GhostscriptConversationState, "confirmedEncodedMessages" | "decodedMessages" | "pendingSend"> {

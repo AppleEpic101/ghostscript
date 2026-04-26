@@ -14,6 +14,13 @@ export function filterPromptMessages(
   return messages.filter((message) => !knownCoverTexts.has(normalizeMessageText(message.text)));
 }
 
+export function countFilteredPromptMessages(
+  messages: GhostscriptThreadMessage[],
+  conversation: Pick<GhostscriptConversationState, "confirmedEncodedMessages" | "decodedMessages" | "pendingSend">,
+) {
+  return messages.length - filterPromptMessages(messages, conversation).length;
+}
+
 export function collectKnownCoverTexts(
   conversation: Pick<GhostscriptConversationState, "confirmedEncodedMessages" | "decodedMessages" | "pendingSend">,
 ) {
