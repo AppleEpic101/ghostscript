@@ -23,6 +23,7 @@ const AUTHOR_SELECTORS = [
 ];
 
 const CONTENT_SELECTORS = ['[id^="message-content-"]', '[class*="messageContent"]', '[data-slate-node="element"]'];
+const MESSAGE_ACCESSORY_SELECTORS = ['[id^="message-accessories-"]'];
 const DISCORD_MAX_MESSAGE_LENGTH = 2000;
 const SEND_BUTTON_SELECTORS = [
   'button[type="submit"]',
@@ -211,6 +212,35 @@ export function classifyTwoPartyAuthors(authorUsernames: string[], localUsername
     localAuthors,
     partnerAuthors,
   };
+}
+
+export function resolveDiscordMessageId(params: {
+  threadId: string | null;
+  ownElementId?: string | null;
+  ownListItemId?: string | null;
+  nestedMessageContentId?: string | null;
+  nestedAccessoryId?: string | null;
+  nestedUsernameId?: string | null;
+}) {
+  const ownId = extractMessageIdFromValue(params.ownElementId) ?? extractMessageIdFromValue(params.ownListItemId);
+  const nestedId =
+    extractMessageIdFromValue(params.nestedMessageContentId) ??
+    extractMessageIdFromValue(params.nestedAccessoryId) ??
+    extractMessageIdFromValue(params.nestedUsernameId);
+
+  if (nestedId) {
+    return nestedId;
+  }
+
+  if (!ownId) {
+    return null;
+  }
+
+  if (params.threadId && ownId === params.threadId) {
+    return null;
+  }
+
+  return ownId;
 }
 
 export function buildBoundedConversationWindow(
@@ -451,9 +481,28 @@ export async function renderDebugOverlayOnAllMessages(messages: GhostscriptThrea
 }
 
 function findMessageContainers() {
-  return MESSAGE_CONTAINER_SELECTORS.flatMap((selector) =>
-    Array.from(document.querySelectorAll<HTMLElement>(selector)),
-  ).filter(isLikelyMessageContainer);
+  const anchors = [
+    ...CONTENT_SELECTORS,
+    ...AUTHOR_SELECTORS,
+    ...MESSAGE_ACCESSORY_SELECTORS,
+  ].flatMap((selector) => Array.from(document.querySelectorAll<HTMLElement>(selector)));
+  const containers = new Map<string, HTMLElement>();
+
+  for (const anchor of anchors) {
+    const container = anchor.closest<HTMLElement>(MESSAGE_CONTAINER_SELECTORS.join(", "));
+    if (!container || !isLikelyMessageContainer(container)) {
+      continue;
+    }
+
+    const key =
+      container.id ||
+      container.getAttribute("data-list-item-id") ||
+      anchor.id ||
+      `${container.tagName}:${containers.size}`;
+    containers.set(key, container);
+  }
+
+  return Array.from(containers.values());
 }
 
 function findMessageElementById(discordMessageId: string) {
@@ -473,48 +522,29 @@ function findMessageContentElement(messageElement: HTMLElement) {
 }
 
 function extractMessageId(element: HTMLElement) {
-  const candidates = [
-    element.id,
-    element.getAttribute("data-list-item-id"),
-    element.querySelector<HTMLElement>('[id^="message-content-"]')?.id ?? "",
-    element.querySelector<HTMLElement>('[id^="message-accessories-"]')?.id ?? "",
-    element.querySelector<HTMLElement>('[id^="message-username-"]')?.id ?? "",
-  ];
-
-  for (const candidate of candidates) {
-    const match = candidate?.match(
-      /(?:chat-messages-|chat-messages_|message-|message-content-|message-accessories-|message-username-)(\d{17,20})/,
-    );
-    if (match?.[1]) {
-      return match[1];
-    }
-  }
-
-  return null;
+  return resolveDiscordMessageId({
+    threadId: getCurrentDiscordThreadId(),
+    ownElementId: element.id,
+    ownListItemId: element.getAttribute("data-list-item-id"),
+    nestedMessageContentId: element.querySelector<HTMLElement>('[id^="message-content-"]')?.id,
+    nestedAccessoryId: element.querySelector<HTMLElement>('[id^="message-accessories-"]')?.id,
+    nestedUsernameId: element.querySelector<HTMLElement>('[id^="message-username-"]')?.id,
+  });
 }
 
 function isLikelyMessageContainer(element: HTMLElement) {
-  const ownMessageId = extractMessageIdFromOwnAttributes(element);
+  const ownMessageId = resolveDiscordMessageId({
+    threadId: getCurrentDiscordThreadId(),
+    ownElementId: element.id,
+    ownListItemId: element.getAttribute("data-list-item-id"),
+    nestedMessageContentId: element.querySelector<HTMLElement>('[id^="message-content-"]')?.id,
+    nestedAccessoryId: element.querySelector<HTMLElement>('[id^="message-accessories-"]')?.id,
+    nestedUsernameId: element.querySelector<HTMLElement>('[id^="message-username-"]')?.id,
+  });
   const hasContent = findMessageContentElement(element) !== null;
   const hasAuthor = !!extractAuthorUsername(element);
 
   return ownMessageId !== null && (hasContent || hasAuthor);
-}
-
-function extractMessageIdFromOwnAttributes(element: HTMLElement) {
-  const candidates = [
-    element.id,
-    element.getAttribute("data-list-item-id"),
-  ];
-
-  for (const candidate of candidates) {
-    const match = candidate?.match(/(?:chat-messages-|chat-messages_|message-)(\d{17,20})/);
-    if (match?.[1]) {
-      return match[1];
-    }
-  }
-
-  return null;
 }
 
 function extractAuthorUsername(element: HTMLElement) {
@@ -607,6 +637,13 @@ function normalizeTimestampFloor(value?: string) {
 
   const timestamp = Date.parse(value);
   return Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : "";
+}
+
+function extractMessageIdFromValue(value?: string | null) {
+  const match = value?.match(
+    /(?:chat-messages-|chat-messages_|message-|message-content-|message-accessories-|message-username-)(\d{17,20})/,
+  );
+  return match?.[1] ?? null;
 }
 
 function selectAllEditableText(element: HTMLElement) {

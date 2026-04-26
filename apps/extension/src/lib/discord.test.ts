@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { classifyTwoPartyAuthors, filterEligibleTwoPartyMessages } from "./discord";
+import { classifyTwoPartyAuthors, filterEligibleTwoPartyMessages, resolveDiscordMessageId } from "./discord";
 
 test("classifyTwoPartyAuthors matches punctuation and spacing differences in Discord names", () => {
   const classification = classifyTwoPartyAuthors(
@@ -120,5 +120,28 @@ test("filterEligibleTwoPartyMessages classifies exact local and partner username
         direction: "incoming",
       },
     ],
+  );
+});
+
+test("resolveDiscordMessageId rejects a thread wrapper id when no nested message ids are present", () => {
+  assert.equal(
+    resolveDiscordMessageId({
+      threadId: "1497096313542545408",
+      ownElementId: "chat-messages-1497096313542545408",
+      ownListItemId: null,
+    }),
+    null,
+  );
+});
+
+test("resolveDiscordMessageId prefers a nested real message id over the thread wrapper id", () => {
+  assert.equal(
+    resolveDiscordMessageId({
+      threadId: "1497096313542545408",
+      ownElementId: "chat-messages-1497096313542545408",
+      ownListItemId: null,
+      nestedMessageContentId: "message-content-1498000000000000002",
+    }),
+    "1498000000000000002",
   );
 });
