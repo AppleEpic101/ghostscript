@@ -202,6 +202,13 @@ export async function markSuppressedMessage(threadId: string, discordMessageId: 
   }));
 }
 
+export async function clearSuppressedMessageIds(threadId: string) {
+  return updateConversationState(threadId, (conversation) => ({
+    ...conversation,
+    suppressedMessageIds: [],
+  }));
+}
+
 export async function storeDecodedMessage(
   threadId: string,
   discordMessageId: string,
@@ -259,6 +266,7 @@ function createEmptyConversationState(threadId: string): GhostscriptConversation
 function normalizeConversationState(conversation: GhostscriptConversationState): GhostscriptConversationState {
   return {
     ...conversation,
+    suppressedMessageIds: conversation.suppressedMessageIds ?? [],
     confirmedEncodedMessages: conversation.confirmedEncodedMessages ?? [],
     pendingSend: conversation.pendingSend
       ? {

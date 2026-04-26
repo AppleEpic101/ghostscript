@@ -113,8 +113,8 @@ function GhostscriptComposerOverlay({ onLayoutChange }: { onLayoutChange: () => 
             setSendError(null);
             break;
           case "deleted-due-to-race":
-            setSendStatus("A partner message was ignored locally until your send confirms.");
-            setSendError(conversation.pendingSend.error);
+            setSendStatus("Waiting for Discord to confirm the previous Ghostscript message...");
+            setSendError(null);
             break;
           case "failed":
             setSendStatus("Ghostscript send failed.");

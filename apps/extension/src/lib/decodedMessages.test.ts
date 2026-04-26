@@ -22,7 +22,6 @@ test("decoded message active-view normalization preserves decrypted default and 
         threadId: "thread-1",
         nextOutboundMessageId: 1,
         cachedMessages: [],
-        suppressedMessageIds: [],
         pendingSend: null,
         decodedMessages: {
           "message-1": {
@@ -49,6 +48,7 @@ test("decoded message active-view normalization preserves decrypted default and 
 
   assert.equal(normalizeDecodedMessageActiveView("original"), "cover");
   assert.equal(normalizeDecodedMessageActiveView(undefined), "decrypted");
+  assert.deepEqual(conversation.suppressedMessageIds, []);
   assert.equal(conversation.decodedMessages["message-1"]?.activeView, "cover");
   assert.equal(conversation.decodedMessages["message-2"]?.activeView, "decrypted");
 });

@@ -354,6 +354,16 @@ export function hideDiscordMessageLocally(discordMessageId: string) {
   messageElement.style.display = "none";
 }
 
+export function showDiscordMessageLocally(discordMessageId: string) {
+  const messageElement = findMessageElementById(discordMessageId);
+  if (!messageElement) {
+    return;
+  }
+
+  delete messageElement.dataset.ghostscriptSuppressed;
+  messageElement.style.removeProperty("display");
+}
+
 export function renderDecodedMessageOverlay(params: {
   threadId: string;
   discordMessageId: string;

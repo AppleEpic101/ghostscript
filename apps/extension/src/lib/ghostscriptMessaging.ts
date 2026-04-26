@@ -6,21 +6,21 @@ import {
   buildBoundedConversationWindow,
   collectTwoPartyMessages,
   getCurrentDiscordThreadId,
-  hideDiscordMessageLocally,
   renderDecodedMessageOverlay,
   sendTextThroughDiscord,
+  showDiscordMessageLocally,
 } from "./discord";
 import { attemptIncomingMessageDecode } from "./incomingMessageDecode";
 import {
   cacheConversationMessages,
+  clearSuppressedMessageIds,
   getLocalIdentityBundle,
   isPendingSendStale,
-  type PendingSendState,
   type DecodedGhostscriptMessageState,
-  reserveNextMessageId,
+  type PendingSendState,
   readConversationState,
+  reserveNextMessageId,
   setPendingSend,
-  markSuppressedMessage,
   storeConfirmedEncodedMessage,
   storeDecodedMessage,
 } from "./ghostscriptState";
@@ -232,8 +232,8 @@ export async function syncGhostscriptConversation(params: {
     cachedMessageCount: conversation.cachedMessages.length,
     filteredPromptMessageCount,
   });
-  await applySuppressedMessages(threadId);
-  await decodeIncomingMessages(params, messages, conversation.suppressedMessageIds);
+  await restorePreviouslySuppressedMessages(threadId);
+  await decodeIncomingMessages(params, messages);
   await restoreDecodedMessageOverlays(threadId, messages);
 }
 
@@ -242,10 +242,7 @@ async function reconcilePendingSend(messages: GhostscriptThreadMessage[]) {
   const conversation = await readConversationState(threadId);
   const pendingSend = conversation.pendingSend;
 
-  if (
-    !pendingSend ||
-    (pendingSend.status !== "awaiting-discord-confirm" && pendingSend.status !== "deleted-due-to-race")
-  ) {
+  if (!pendingSend || (pendingSend.status !== "awaiting-discord-confirm" && pendingSend.status !== "deleted-due-to-race")) {
     return;
   }
 
@@ -278,37 +275,23 @@ async function reconcilePendingSend(messages: GhostscriptThreadMessage[]) {
     });
     return;
   }
-
-  const partnerMessagesDuringWindow = messages.filter(
-    (message) =>
-      message.direction === "incoming" &&
-      Date.parse(message.snowflakeTimestamp) >= pendingSend.startedAt &&
-      !conversation.suppressedMessageIds.includes(message.discordMessageId),
-  );
-
-  for (const message of partnerMessagesDuringWindow) {
-    await markSuppressedMessage(threadId, message.discordMessageId);
-    hideDiscordMessageLocally(message.discordMessageId);
-    await setPendingSend(threadId, pendingSend ? {
-      ...pendingSend,
-      status: "deleted-due-to-race",
-      error: `Ignored partner message ${message.discordMessageId} while waiting for local Discord confirmation.`,
-    } : null);
-  }
 }
 
-async function applySuppressedMessages(threadId: string) {
+async function restorePreviouslySuppressedMessages(threadId: string) {
   const conversation = await readConversationState(threadId);
 
   for (const messageId of conversation.suppressedMessageIds) {
-    hideDiscordMessageLocally(messageId);
+    showDiscordMessageLocally(messageId);
+  }
+
+  if (conversation.suppressedMessageIds.length > 0) {
+    await clearSuppressedMessageIds(threadId);
   }
 }
 
 async function decodeIncomingMessages(
   params: { pairing: ActivePairingState; localUsername: string; partnerUsername: string },
   messages: GhostscriptThreadMessage[],
-  suppressedMessageIds: string[],
 ) {
   const threadId = getRequiredThreadId();
   const conversation = await readConversationState(threadId);
@@ -320,15 +303,6 @@ async function decodeIncomingMessages(
         threadId,
         discordMessageId: message.discordMessageId,
         reason: "not-incoming",
-      });
-      continue;
-    }
-
-    if (suppressedMessageIds.includes(message.discordMessageId)) {
-      logGhostscriptDebug("messaging", "decode-skipped", {
-        threadId,
-        discordMessageId: message.discordMessageId,
-        reason: "suppressed",
       });
       continue;
     }
