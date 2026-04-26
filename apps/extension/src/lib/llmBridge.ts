@@ -2,12 +2,14 @@ import {
   DEFAULT_TRANSPORT_CONFIG_ID,
   SUPPORTED_TRANSPORT_CONFIG_IDS,
   TRANSPORT_PROTOCOL_VERSION,
+  type ConversationContextWindow,
   type GhostscriptThreadMessage,
   type LLMEncodingConfig,
   type SupportedTransportConfigId,
 } from "@ghostscript/shared";
 import { getGhostscriptApiBaseUrl } from "./apiBaseUrl";
 import { logGhostscriptDebug } from "./debugLog";
+import { buildConversationPrompt as buildCanonicalConversationPrompt } from "./promptBuilder";
 
 const DEFAULT_ENCODING_CONFIG: LLMEncodingConfig = {
   configId: DEFAULT_TRANSPORT_CONFIG_ID,
@@ -15,8 +17,6 @@ const DEFAULT_ENCODING_CONFIG: LLMEncodingConfig = {
   modelId: "xenova-distilgpt2-v1",
   tokenizerId: "gpt2-tokenizer-v1",
   transportBackend: "local-gpt2-top4-v1",
-  temperature: 1,
-  pMin: 0,
   bitsPerStep: 2,
   excludedTokenSet: ["<|endoftext|>", "<s>", "</s>"],
   fallbackStrategy: "reduce-bits",
@@ -53,6 +53,29 @@ export function getDefaultEncodingConfig() {
 
 export function getSupportedEncodingConfigs() {
   return SUPPORTED_TRANSPORT_CONFIG_IDS.map((configId) => getEncodingConfigById(configId));
+}
+
+export function buildConversationPrompt(params: {
+  coverTopic: string;
+  messages?: GhostscriptThreadMessage[];
+  contextWindow?: ConversationContextWindow;
+  wordTarget?: number;
+  replyTurn?: string;
+}) {
+  const contextWindow = params.contextWindow ?? {
+    threadId: params.messages?.[0]?.threadId ?? "",
+    messages: params.messages ?? [],
+    truncated: false,
+    maxMessages: 18,
+    maxChars: 3200,
+  };
+
+  return buildCanonicalConversationPrompt({
+    coverTopic: params.coverTopic,
+    contextWindow,
+    wordTarget: params.wordTarget ?? 16,
+    replyTurn: params.replyTurn ?? "",
+  });
 }
 
 export async function encodeBitstringAsCoverText(params: EncodeRequest) {
@@ -93,24 +116,6 @@ export async function decodeCoverTextToBitstring(params: DecodeVisibleTextParams
   });
 
   return response.bitstring;
-}
-
-export function buildConversationPrompt(params: {
-  coverTopic: string;
-  messages: GhostscriptThreadMessage[];
-}) {
-  const orderedLines = params.messages.map(
-    (message) => `${message.authorUsername}: ${message.text.replace(/\s+/g, " ").trim()}`,
-  );
-
-  return [
-    `Cover text topic: ${params.coverTopic}`,
-    "Use the paired Discord chat history below to stay on-topic.",
-    "",
-    orderedLines.join("\n"),
-  ]
-    .filter(Boolean)
-    .join("\n");
 }
 
 export async function fingerprintTransportPrompt(prompt: string) {

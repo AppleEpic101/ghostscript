@@ -1,4 +1,4 @@
-import type { GhostscriptThreadMessage } from "@ghostscript/shared";
+import type { ConversationContextWindow, GhostscriptThreadMessage } from "@ghostscript/shared";
 
 export type DecodedGhostscriptMessageView = "decrypted" | "cover";
 export type LegacyDecodedGhostscriptMessageView = DecodedGhostscriptMessageView | "original" | null | undefined;
@@ -29,36 +29,36 @@ export function getDecodedMessageBody(params: {
 }
 
 export function buildDecodeHistoryWindows(
-  visibleHistoryWindow: GhostscriptThreadMessage[],
-  cachedHistoryWindow: GhostscriptThreadMessage[],
+  visibleHistoryWindow: ConversationContextWindow,
+  cachedHistoryWindow: ConversationContextWindow,
 ) {
-  const windows: GhostscriptThreadMessage[][] = [];
+  const windows: ConversationContextWindow[] = [];
 
-  if (cachedHistoryWindow.length === 0 && visibleHistoryWindow.length === 0) {
-    windows.push([]);
+  if (cachedHistoryWindow.messages.length === 0 && visibleHistoryWindow.messages.length === 0) {
+    windows.push(cachedHistoryWindow);
     return windows;
   }
 
-  if (cachedHistoryWindow.length > 0) {
+  if (cachedHistoryWindow.messages.length > 0) {
     windows.push(cachedHistoryWindow);
   }
 
-  if (visibleHistoryWindow.length === 0) {
+  if (visibleHistoryWindow.messages.length === 0) {
     return windows;
   }
 
-  if (cachedHistoryWindow.length === 0) {
+  if (cachedHistoryWindow.messages.length === 0) {
     windows.push(visibleHistoryWindow);
     return windows;
   }
 
   if (
-    areConversationWindowsEqual(visibleHistoryWindow, cachedHistoryWindow) ||
-    doesWindowEndWith(cachedHistoryWindow, visibleHistoryWindow) ||
-    doesWindowEndWith(visibleHistoryWindow, cachedHistoryWindow) ||
-    shareRecentMessageTail(visibleHistoryWindow, cachedHistoryWindow)
+    areConversationWindowsEqual(visibleHistoryWindow.messages, cachedHistoryWindow.messages) ||
+    doesWindowEndWith(cachedHistoryWindow.messages, visibleHistoryWindow.messages) ||
+    doesWindowEndWith(visibleHistoryWindow.messages, cachedHistoryWindow.messages) ||
+    shareRecentMessageTail(visibleHistoryWindow.messages, cachedHistoryWindow.messages)
   ) {
-    if (!areConversationWindowsEqual(visibleHistoryWindow, cachedHistoryWindow)) {
+    if (!areConversationWindowsEqual(visibleHistoryWindow.messages, cachedHistoryWindow.messages)) {
       windows.push(visibleHistoryWindow);
     }
 

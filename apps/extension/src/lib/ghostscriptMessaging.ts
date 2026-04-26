@@ -25,7 +25,6 @@ import {
   storeDecodedMessage,
 } from "./ghostscriptState";
 import {
-  buildConversationPrompt,
   decodeCoverTextToBitstring,
   encodeBitstringAsCoverText,
   fingerprintTransportPrompt,
@@ -36,6 +35,7 @@ import {
 import { logGhostscriptDebug } from "./debugLog";
 import { readExtensionState } from "./pairingStore";
 import { countFilteredPromptMessages, filterPromptMessages } from "./promptHistory";
+import { buildConversationPrompt } from "./promptBuilder";
 
 const DISCORD_MAX_MESSAGE_LENGTH = 2000;
 
@@ -60,7 +60,11 @@ export async function sendEncryptedGhostscriptMessage(params: {
   }
 
   const refreshedConversation = await readConversationState(threadId);
-  if (refreshedConversation.pendingSend && refreshedConversation.pendingSend.status !== "failed") {
+  if (
+    refreshedConversation.pendingSend &&
+    refreshedConversation.pendingSend.status !== "failed" &&
+    refreshedConversation.pendingSend.status !== "confirmed"
+  ) {
     throw new Error("Wait for Discord to confirm the previous Ghostscript message before sending another one.");
   }
 
@@ -108,9 +112,12 @@ export async function sendEncryptedGhostscriptMessage(params: {
     const compressedTransport = await compressBitstringForTransport(envelopeBitstring);
     const encodingConfig = getDefaultEncodingConfig();
     const wordTarget = estimateWordTarget(compressedTransport.bitstring.length, encodingConfig.bitsPerStep);
+    const contextWindow = buildBoundedConversationWindow(promptMessages);
     const prompt = buildConversationPrompt({
       coverTopic: params.pairing.defaultCoverTopic ?? "general chat",
-      messages: buildBoundedConversationWindow(promptMessages),
+      contextWindow,
+      wordTarget,
+      replyTurn: params.plaintext,
     });
     logGhostscriptDebug("messaging", "send-prompt-built", {
       threadId,
@@ -134,6 +141,11 @@ export async function sendEncryptedGhostscriptMessage(params: {
     const encodedMessage = {
       visibleText,
       configId: encodingConfig.configId,
+      modelId: encodingConfig.modelId,
+      tokenizerId: encodingConfig.tokenizerId,
+      transportBackend: encodingConfig.transportBackend,
+      msgId,
+      estimatedWordTarget: wordTarget,
       transportProtocolVersion: getTransportProtocolVersion(),
       promptFingerprint: await fingerprintTransportPrompt(prompt),
     };
@@ -146,7 +158,7 @@ export async function sendEncryptedGhostscriptMessage(params: {
       );
     }
 
-    await setPendingSend(threadId, {
+      await setPendingSend(threadId, {
       threadId,
       sessionId: params.pairing.session.id,
       status: "awaiting-discord-confirm",
@@ -236,7 +248,10 @@ async function reconcilePendingSend(messages: GhostscriptThreadMessage[]) {
   const conversation = await readConversationState(threadId);
   const pendingSend = conversation.pendingSend;
 
-  if (!pendingSend || pendingSend.status !== "awaiting-discord-confirm") {
+  if (
+    !pendingSend ||
+    (pendingSend.status !== "awaiting-discord-confirm" && pendingSend.status !== "deleted-due-to-race")
+  ) {
     return;
   }
 
@@ -251,7 +266,11 @@ async function reconcilePendingSend(messages: GhostscriptThreadMessage[]) {
     if (pendingSend.encodedMessage) {
       await storeConfirmedEncodedMessage(threadId, pendingSend.encodedMessage);
     }
-    await setPendingSend(threadId, null);
+    await setPendingSend(threadId, {
+      ...pendingSend,
+      status: "confirmed",
+      error: null,
+    });
     return;
   }
 
@@ -265,6 +284,11 @@ async function reconcilePendingSend(messages: GhostscriptThreadMessage[]) {
   for (const message of partnerMessagesDuringWindow) {
     await markSuppressedMessage(threadId, message.discordMessageId);
     hideDiscordMessageLocally(message.discordMessageId);
+    await setPendingSend(threadId, pendingSend ? {
+      ...pendingSend,
+      status: "deleted-due-to-race",
+      error: `Ignored partner message ${message.discordMessageId} while waiting for local Discord confirmation.`,
+    } : null);
   }
 }
 
@@ -323,8 +347,8 @@ async function decodeIncomingMessages(
       threadId,
       discordMessageId: message.discordMessageId,
       visibleText: message.text,
-      visibleHistoryMessageCount: visibleHistoryWindow.length,
-      cachedHistoryMessageCount: cachedHistoryWindow.length,
+      visibleHistoryMessageCount: visibleHistoryWindow.messages.length,
+      cachedHistoryMessageCount: cachedHistoryWindow.messages.length,
       historyWindowCount: historyWindows.length,
     });
 
@@ -373,6 +397,11 @@ async function decodeIncomingMessages(
         encodedMessage: {
           visibleText: message.text,
           configId: decodeResult.configId,
+          modelId: getDefaultEncodingConfig().modelId,
+          tokenizerId: getDefaultEncodingConfig().tokenizerId,
+          transportBackend: getDefaultEncodingConfig().transportBackend,
+          msgId: 0,
+          estimatedWordTarget: 0,
           transportProtocolVersion: getTransportProtocolVersion(),
           promptFingerprint: decodeResult.promptFingerprint,
         },
@@ -404,6 +433,11 @@ async function decodeIncomingMessages(
         encodedMessage: {
           visibleText: message.text,
           configId: decodeResult.configId,
+          modelId: getDefaultEncodingConfig().modelId,
+          tokenizerId: getDefaultEncodingConfig().tokenizerId,
+          transportBackend: getDefaultEncodingConfig().transportBackend,
+          msgId: 0,
+          estimatedWordTarget: 0,
           transportProtocolVersion: getTransportProtocolVersion(),
           promptFingerprint: decodeResult.promptFingerprint,
         },

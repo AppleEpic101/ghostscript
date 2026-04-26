@@ -1,4 +1,4 @@
-import type { GhostscriptThreadMessage } from "@ghostscript/shared";
+import type { ConversationContextWindow, GhostscriptThreadMessage } from "@ghostscript/shared";
 import {
   getDecodedMessageBody,
   type DecodedGhostscriptMessageView,
@@ -244,16 +244,18 @@ export function resolveDiscordMessageId(params: {
 export function buildBoundedConversationWindow(
   messages: GhostscriptThreadMessage[],
   limits = { maxMessages: 18, maxChars: 3200 },
-) {
+): ConversationContextWindow {
   const orderedMessages = [...messages].sort(compareMessagesAscending);
   const selected: GhostscriptThreadMessage[] = [];
   let charCount = 0;
+  let truncated = false;
 
   for (let index = orderedMessages.length - 1; index >= 0; index -= 1) {
     const message = orderedMessages[index];
     const nextCharCount = charCount + message.text.length + message.authorUsername.length + 2;
 
     if (selected.length >= limits.maxMessages || nextCharCount > limits.maxChars) {
+      truncated = true;
       break;
     }
 
@@ -261,7 +263,13 @@ export function buildBoundedConversationWindow(
     charCount = nextCharCount;
   }
 
-  return selected.reverse();
+  return {
+    threadId: orderedMessages[0]?.threadId ?? "",
+    messages: selected.reverse(),
+    truncated,
+    maxMessages: limits.maxMessages,
+    maxChars: limits.maxChars,
+  };
 }
 
 export async function sendTextThroughDiscord(text: string) {

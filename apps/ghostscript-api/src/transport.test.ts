@@ -20,8 +20,6 @@ function buildConfig(overrides: Partial<LLMEncodingConfig> = {}): LLMEncodingCon
     modelId: "xenova-distilgpt2-v1",
     tokenizerId: "gpt2-tokenizer-v1",
     transportBackend: "local-gpt2-top4-v1",
-    temperature: 1,
-    pMin: 0,
     bitsPerStep: 2,
     excludedTokenSet: ["<|endoftext|>", "<s>", "</s>"],
     fallbackStrategy: "reduce-bits",
@@ -93,7 +91,7 @@ test("candidate pool respects exclusions and roundtrips with the real tokenizer/
   assert.equal(decoded, bitstring);
 });
 
-test("decode returns null when the visible text does not match a valid candidate path", { timeout: 300_000 }, async () => {
+test("decode tolerates trailing style-ending text after the declared payload bits", { timeout: 300_000 }, async () => {
   const bitstring = "000000000000000000000000000100000110100001101001";
   const config = buildConfig();
   const wordTarget = estimateWordTargetForTest(bitstring.length, config.bitsPerStep);
@@ -111,7 +109,7 @@ test("decode returns null when the visible text does not match a valid candidate
     config,
   });
 
-  assert.equal(decoded, null);
+  assert.equal(decoded, bitstring);
 });
 
 test("rank transport treats wordTarget as advisory only", { timeout: 300_000 }, async () => {
@@ -146,5 +144,18 @@ test("rank transport treats wordTarget as advisory only", { timeout: 300_000 }, 
       config,
     }),
     bitstring,
+  );
+});
+
+test("transport rejects incompatible pinned runtime metadata", async () => {
+  await assert.rejects(
+    () =>
+      encodeBitstringAsRankedText({
+        prompt: PROMPT,
+        bitstring: "00000000000000000000000000010000",
+        wordTarget: 12,
+        config: buildConfig({ modelId: "different-model" }),
+      }),
+    /incompatible with the pinned local runtime/i,
   );
 });

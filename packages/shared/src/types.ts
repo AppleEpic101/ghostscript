@@ -111,7 +111,13 @@ export interface ResetPairingResponse {
   session: PairingSession;
 }
 
-export type PendingSendStatus = "idle" | "encoding" | "awaiting-discord-confirm" | "failed";
+export type PendingSendStatus =
+  | "idle"
+  | "encoding"
+  | "awaiting-discord-confirm"
+  | "confirmed"
+  | "failed"
+  | "deleted-due-to-race";
 
 export type TransportProtocolVersion = 1;
 export type SupportedTransportConfigId = "ghostscript-default-v1";
@@ -119,6 +125,11 @@ export type SupportedTransportConfigId = "ghostscript-default-v1";
 export interface EncodedGhostscriptMessage {
   visibleText: string;
   configId: SupportedTransportConfigId;
+  modelId: string;
+  tokenizerId: string;
+  transportBackend: string;
+  msgId: number;
+  estimatedWordTarget: number;
   transportProtocolVersion: TransportProtocolVersion;
   promptFingerprint: string;
 }
@@ -129,8 +140,6 @@ export interface LLMEncodingConfig {
   modelId: string;
   tokenizerId: string;
   transportBackend: string;
-  temperature: number;
-  pMin: number;
   bitsPerStep: number;
   excludedTokenSet: string[];
   fallbackStrategy: "reduce-bits";
@@ -145,6 +154,8 @@ export interface MessageEnvelope {
   senderId: string;
   msgId: number;
   ciphertext: string;
+  authTag: string | null;
+  payloadBitLength: number;
 }
 
 export interface GhostscriptThreadMessage {
@@ -154,4 +165,12 @@ export interface GhostscriptThreadMessage {
   snowflakeTimestamp: string;
   text: string;
   direction: "incoming" | "outgoing" | "other";
+}
+
+export interface ConversationContextWindow {
+  threadId: string;
+  messages: GhostscriptThreadMessage[];
+  truncated: boolean;
+  maxMessages: number;
+  maxChars: number;
 }

@@ -1,12 +1,13 @@
 import type {
-  GhostscriptThreadMessage,
+  ConversationContextWindow,
   LLMEncodingConfig,
   SupportedTransportConfigId,
 } from "@ghostscript/shared";
 import { deserializeEnvelopeFromBitstring } from "./bitstream";
 import { decompressBitstringFromTransport } from "./bitCompression";
 import type { SessionCryptoMaterial } from "./crypto";
-import { buildConversationPrompt, type DecodeVisibleTextParams } from "./llmBridge";
+import { type DecodeVisibleTextParams } from "./llmBridge";
+import { buildDecoderPrompt } from "./promptBuilder";
 
 export type IncomingMessageDecodeResult =
   | {
@@ -25,7 +26,7 @@ export type IncomingMessageDecodeResult =
 export async function attemptIncomingMessageDecode(params: {
   visibleText: string;
   coverTopic: string;
-  historyWindows: GhostscriptThreadMessage[][];
+  historyWindows: ConversationContextWindow[];
   material: SessionCryptoMaterial;
   encodingConfigs: readonly LLMEncodingConfig[];
   defaultConfigId: SupportedTransportConfigId;
@@ -43,9 +44,9 @@ export async function attemptIncomingMessageDecode(params: {
   let tamperedConfigId: SupportedTransportConfigId = params.defaultConfigId;
 
   for (const historyWindow of params.historyWindows) {
-    const prompt = buildConversationPrompt({
+    const prompt = buildDecoderPrompt({
       coverTopic: params.coverTopic,
-      messages: historyWindow,
+      contextWindow: historyWindow,
     });
     const promptFingerprint = await params.fingerprintPrompt(prompt);
 
@@ -59,11 +60,11 @@ export async function attemptIncomingMessageDecode(params: {
         });
       } catch (error) {
         params.onAttempt?.({
-          outcome: "bridge-error",
-          configId: encodingConfig.configId,
-          historyWindowSize: historyWindow.length,
-          error: error instanceof Error ? error.message : "Unknown decode bridge error.",
-        });
+            outcome: "bridge-error",
+            configId: encodingConfig.configId,
+            historyWindowSize: historyWindow.messages.length,
+            error: error instanceof Error ? error.message : "Unknown decode bridge error.",
+          });
         continue;
       }
 
@@ -71,7 +72,7 @@ export async function attemptIncomingMessageDecode(params: {
         params.onAttempt?.({
           outcome: "no-bitstring",
           configId: encodingConfig.configId,
-          historyWindowSize: historyWindow.length,
+          historyWindowSize: historyWindow.messages.length,
         });
         continue;
       }
@@ -82,7 +83,7 @@ export async function attemptIncomingMessageDecode(params: {
         params.onAttempt?.({
           outcome: "decoded",
           configId: encodingConfig.configId,
-          historyWindowSize: historyWindow.length,
+          historyWindowSize: historyWindow.messages.length,
         });
         return {
           status: "decoded" as const,
@@ -96,7 +97,7 @@ export async function attemptIncomingMessageDecode(params: {
           params.onAttempt?.({
             outcome: "tampered",
             configId: encodingConfig.configId,
-            historyWindowSize: historyWindow.length,
+            historyWindowSize: historyWindow.messages.length,
           });
           tamperedPromptFingerprint ??= promptFingerprint;
           tamperedConfigId = encodingConfig.configId;

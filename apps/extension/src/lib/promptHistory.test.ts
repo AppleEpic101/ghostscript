@@ -88,6 +88,11 @@ function createEncodedMessage(visibleText: string): EncodedGhostscriptMessage {
   return {
     visibleText,
     configId: "ghostscript-default-v1",
+    modelId: "xenova-distilgpt2-v1",
+    tokenizerId: "gpt2-tokenizer-v1",
+    transportBackend: "local-gpt2-top4-v1",
+    msgId: 1,
+    estimatedWordTarget: 16,
     transportProtocolVersion: 1,
     promptFingerprint: "prompt",
   };

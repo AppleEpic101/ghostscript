@@ -54,8 +54,6 @@ test("decode rejects unsupported config IDs", async () => {
           modelId: "xenova-distilgpt2-v1",
           tokenizerId: "gpt2-tokenizer-v1",
           transportBackend: "local-gpt2-top4-v1",
-          temperature: 1,
-          pMin: 0,
           bitsPerStep: 2,
           excludedTokenSet: ["<|endoftext|>", "<s>", "</s>"],
           fallbackStrategy: "reduce-bits",

@@ -190,6 +190,8 @@ export async function encryptMessageEnvelope(
     senderId: material.localParticipantId,
     msgId,
     ciphertext: arrayBufferToBase64(ciphertext),
+    authTag: null,
+    payloadBitLength: encodedPlaintext.length * 8,
   };
 
   logGhostscriptDebug("crypto", "encrypt-complete", {

@@ -17,8 +17,10 @@ export async function loadCausalLmContext(modelId: string): Promise<LoadedCausal
 
   for (const device of candidateDevices) {
     try {
-      const model = await AutoModelForCausalLM.from_pretrained(modelId, { device });
-      console.info(`[ghostscript] Loaded ${modelId} using device "${device}".`);
+      const modelOptions = getModelLoadOptions(device);
+      const model = await AutoModelForCausalLM.from_pretrained(modelId, { device, ...modelOptions });
+      const fileLabel = modelOptions.model_file_name ? ` (${modelOptions.model_file_name})` : "";
+      console.info(`[ghostscript] Loaded ${modelId} using device "${device}"${fileLabel}.`);
 
       return {
         tokenizer,
@@ -49,11 +51,7 @@ function resolveCandidateDevices(): SupportedDevice[] {
 function getPlatformPreferredDevices(): SupportedDevice[] {
   switch (process.platform) {
     case "darwin":
-      // CoreML loads on macOS, but cache-enabled GPT-2 inference fails at runtime when the
-      // initial past_key_values tensors have zero sequence length. Prefer CPU so encrypted
-      // sends use the transport reliably by default; callers can still explicitly override
-      // the device if they want to experiment with another backend.
-      return ["cpu", "webgpu", "coreml"];
+      return ["coreml", "cpu", "webgpu"];
     case "win32":
       return ["dml", "webgpu", "cpu"];
     case "linux":
@@ -87,4 +85,17 @@ function normalizeDeviceAlias(value: string): SupportedDevice | null {
 
 function dedupeDevices(devices: SupportedDevice[]) {
   return Array.from(new Set(devices));
+}
+
+function getModelLoadOptions(device: SupportedDevice) {
+  if (device === "coreml") {
+    // CoreML fails on Xenova/distilgpt2's merged decoder because the merged graph expects
+    // zero-length past_key_values tensors during the first pass. The plain decoder_model
+    // avoids that cache-prefill path and runs correctly on Apple Silicon.
+    return {
+      model_file_name: "decoder_model",
+    } as const;
+  }
+
+  return {};
 }

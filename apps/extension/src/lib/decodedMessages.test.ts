@@ -76,10 +76,10 @@ test("cover-text presentation uses the visible text and marks the highlighted mo
 });
 
 test("decode history windows still attempt decode when there is no prior conversation context", () => {
-  const historyWindows = buildDecodeHistoryWindows([], []);
+  const historyWindows = buildDecodeHistoryWindows(createWindow([]), createWindow([]));
 
   assert.equal(historyWindows.length, 1);
-  assert.deepEqual(historyWindows[0], []);
+  assert.deepEqual(historyWindows[0], createWindow([]));
 });
 
 test("decode history windows keep cached context available when the visible DOM is truncated", () => {
@@ -90,11 +90,11 @@ test("decode history windows keep cached context available when the visible DOM 
   ];
   const visibleHistory = fullHistory.slice(1);
 
-  const historyWindows = buildDecodeHistoryWindows(visibleHistory, fullHistory);
+  const historyWindows = buildDecodeHistoryWindows(createWindow(visibleHistory), createWindow(fullHistory));
 
   assert.equal(historyWindows.length, 2);
-  assert.deepEqual(historyWindows[0], fullHistory);
-  assert.deepEqual(historyWindows[1], visibleHistory);
+  assert.deepEqual(historyWindows[0], createWindow(fullHistory));
+  assert.deepEqual(historyWindows[1], createWindow(visibleHistory));
 });
 
 function createMessage(discordMessageId: string, authorUsername: string, text: string): GhostscriptThreadMessage {
@@ -105,6 +105,16 @@ function createMessage(discordMessageId: string, authorUsername: string, text: s
     text,
     direction: authorUsername === "alice" ? "outgoing" : "incoming",
     snowflakeTimestamp: new Date(Number(discordMessageId)).toISOString(),
+  };
+}
+
+function createWindow(messages: GhostscriptThreadMessage[]) {
+  return {
+    threadId: "thread-1",
+    messages,
+    truncated: false,
+    maxMessages: 18,
+    maxChars: 3200,
   };
 }
 

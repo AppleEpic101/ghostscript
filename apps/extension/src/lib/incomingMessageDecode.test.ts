@@ -39,6 +39,8 @@ test("incoming decode succeeds with cached history when the visible DOM history 
   const prompt = buildConversationPrompt({
     coverTopic: "coffee plans",
     messages: cachedHistory,
+    wordTarget: estimateWordTarget(64, config.bitsPerStep),
+    replyTurn: "",
   });
   const envelope = await encryptMessageEnvelope("Meet by the side entrance.", 11, aliceMaterial);
   const bitstring = await compressBitstringForTransport(serializeEnvelopeToBitstring(envelope));
@@ -52,7 +54,7 @@ test("incoming decode succeeds with cached history when the visible DOM history 
   const decodeResult = await attemptIncomingMessageDecode({
     visibleText,
     coverTopic: "coffee plans",
-    historyWindows: buildDecodeHistoryWindows(visibleHistory, cachedHistory),
+    historyWindows: buildDecodeHistoryWindows(createWindow(visibleHistory), createWindow(cachedHistory)),
     material: bobMaterial,
     encodingConfigs: [config],
     defaultConfigId: config.configId,
@@ -98,6 +100,8 @@ test("incoming decode succeeds for the first post-pairing message with no prior 
   const prompt = buildConversationPrompt({
     coverTopic: "coffee plans",
     messages: [],
+    wordTarget: estimateWordTarget(64, config.bitsPerStep),
+    replyTurn: "",
   });
   const envelope = await encryptMessageEnvelope("Meet by the side entrance.", 11, aliceMaterial);
   const bitstring = await compressBitstringForTransport(serializeEnvelopeToBitstring(envelope));
@@ -111,7 +115,7 @@ test("incoming decode succeeds for the first post-pairing message with no prior 
   const decodeResult = await attemptIncomingMessageDecode({
     visibleText,
     coverTopic: "coffee plans",
-    historyWindows: buildDecodeHistoryWindows([], []),
+    historyWindows: buildDecodeHistoryWindows(createWindow([]), createWindow([])),
     material: bobMaterial,
     encodingConfigs: [config],
     defaultConfigId: config.configId,
@@ -157,6 +161,8 @@ test("incoming decode remains compatible with legacy uncompressed transport bits
   const prompt = buildConversationPrompt({
     coverTopic: "coffee plans",
     messages: [],
+    wordTarget: estimateWordTarget(64, config.bitsPerStep),
+    replyTurn: "",
   });
   const envelope = await encryptMessageEnvelope("Meet by the side entrance.", 11, aliceMaterial);
   const legacyBitstring = serializeEnvelopeToBitstring(envelope);
@@ -170,7 +176,7 @@ test("incoming decode remains compatible with legacy uncompressed transport bits
   const decodeResult = await attemptIncomingMessageDecode({
     visibleText,
     coverTopic: "coffee plans",
-    historyWindows: buildDecodeHistoryWindows([], []),
+    historyWindows: buildDecodeHistoryWindows(createWindow([]), createWindow([])),
     material: bobMaterial,
     encodingConfigs: [config],
     defaultConfigId: config.configId,
@@ -200,5 +206,15 @@ function createMessage(discordMessageId: string, authorUsername: string, text: s
     text,
     direction: authorUsername === "alice" ? "outgoing" : "incoming",
     snowflakeTimestamp: new Date(Number(discordMessageId)).toISOString(),
+  };
+}
+
+function createWindow(messages: GhostscriptThreadMessage[]) {
+  return {
+    threadId: "thread-1",
+    messages,
+    truncated: false,
+    maxMessages: 18,
+    maxChars: 3200,
   };
 }

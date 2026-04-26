@@ -94,7 +94,11 @@ function GhostscriptComposerOverlay({ onLayoutChange }: { onLayoutChange: () => 
           return;
         }
 
-        setSendLocked(conversation.pendingSend.status !== "failed");
+        setSendLocked(
+          conversation.pendingSend.status === "encoding" ||
+            conversation.pendingSend.status === "awaiting-discord-confirm" ||
+            conversation.pendingSend.status === "deleted-due-to-race",
+        );
         switch (conversation.pendingSend.status) {
           case "encoding":
             setSendStatus("Generating natural cover text...");
@@ -103,6 +107,14 @@ function GhostscriptComposerOverlay({ onLayoutChange }: { onLayoutChange: () => 
           case "awaiting-discord-confirm":
             setSendStatus("Waiting for Discord to confirm the previous Ghostscript message...");
             setSendError(null);
+            break;
+          case "confirmed":
+            setSendStatus("Ghostscript message confirmed.");
+            setSendError(null);
+            break;
+          case "deleted-due-to-race":
+            setSendStatus("A partner message was ignored locally until your send confirms.");
+            setSendError(conversation.pendingSend.error);
             break;
           case "failed":
             setSendStatus("Ghostscript send failed.");
