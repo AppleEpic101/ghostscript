@@ -244,6 +244,11 @@ async function decodeIncomingMessages(
     }
 
     if (decodeResult.status === "decoded") {
+      console.info("[Ghostscript] Last decrypted incoming message:", {
+        threadId,
+        discordMessageId: message.discordMessageId,
+        plaintext: decodeResult.plaintext,
+      });
       await storeDecodedMessage(threadId, message.discordMessageId, {
         status: "decoded",
         plaintext: decodeResult.plaintext,
